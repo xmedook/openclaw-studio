@@ -117,3 +117,20 @@ export const removeAgentEntry = (config: ClawdbotConfig, agentId: string): boole
   writeAgentList(config, next);
   return true;
 };
+
+export const updateClawdbotConfig = (
+  updater: (config: Record<string, unknown>) => boolean
+): { warnings: string[] } => {
+  const warnings: string[] = [];
+  try {
+    const { config, configPath } = loadClawdbotConfig();
+    const changed = updater(config);
+    if (changed) {
+      saveClawdbotConfig(configPath, config);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to update clawdbot.json.";
+    warnings.push(`Agent config not updated: ${message}`);
+  }
+  return { warnings };
+};
