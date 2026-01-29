@@ -5,7 +5,7 @@ import {
   removeAgentEntry,
   updateClawdbotConfig,
 } from "@/lib/clawdbot/config";
-import { deleteAgentArtifacts } from "@/lib/projects/fs.server";
+import { collectAgentIdsAndDeleteArtifacts } from "@/lib/projects/fs.server";
 import { resolveProjectOrResponse } from "@/app/api/projects/resolveResponse";
 import { loadStore, removeProjectFromStore, saveStore } from "../store";
 
@@ -25,15 +25,11 @@ export async function DELETE(
     const { projectId: resolvedProjectId, project } = resolved;
 
     const warnings: string[] = [];
-    const agentIds: string[] = [];
-    for (const tile of project.tiles) {
-      if (!tile.agentId?.trim()) {
-        warnings.push(`Missing agentId for tile ${tile.id}; skipped agent cleanup.`);
-        continue;
-      }
-      deleteAgentArtifacts(resolvedProjectId, tile.agentId, warnings);
-      agentIds.push(tile.agentId);
-    }
+    const agentIds = collectAgentIdsAndDeleteArtifacts(
+      resolvedProjectId,
+      project.tiles,
+      warnings
+    );
     const { warnings: configWarnings } = updateClawdbotConfig((config) => {
       let changed = false;
       for (const agentId of agentIds) {

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
 import type { ProjectTileUpdatePayload } from "@/lib/projects/types";
 import { resolveAgentWorkspaceDir } from "@/lib/projects/agentWorkspace";
-import { deleteAgentArtifacts } from "@/lib/projects/fs.server";
+import { collectAgentIdsAndDeleteArtifacts } from "@/lib/projects/fs.server";
 import { resolveProjectTileOrResponse } from "@/app/api/projects/resolveResponse";
 import {
   removeAgentEntry,
@@ -28,12 +28,14 @@ export async function DELETE(
     const { projectId: resolvedProjectId, tileId: resolvedTileId, tile } = resolved;
 
     const warnings: string[] = [];
-    if (!tile.agentId?.trim()) {
-      warnings.push(`Missing agentId for tile ${tile.id}; skipped agent cleanup.`);
-    } else {
-      deleteAgentArtifacts(resolvedProjectId, tile.agentId, warnings);
+    const agentIds = collectAgentIdsAndDeleteArtifacts(
+      resolvedProjectId,
+      [tile],
+      warnings
+    );
+    if (agentIds.length > 0) {
       const { warnings: configWarnings } = updateClawdbotConfig((config) =>
-        removeAgentEntry(config, tile.agentId)
+        removeAgentEntry(config, agentIds[0])
       );
       warnings.push(...configWarnings);
     }
