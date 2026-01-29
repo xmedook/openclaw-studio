@@ -9,8 +9,6 @@ import type {
   ProjectTileCreatePayload,
   ProjectTileCreateResult,
   ProjectTileDeleteResult,
-  ProjectTileRenamePayload,
-  ProjectTileRenameResult,
   ProjectTileUpdatePayload,
   ProjectTileUpdateResult,
   ProjectTileHeartbeatResult,
@@ -87,18 +85,6 @@ export const deleteProjectTile = async (
 ): Promise<ProjectTileDeleteResult> => {
   return fetchJson<ProjectTileDeleteResult>(`/api/projects/${projectId}/tiles/${tileId}`, {
     method: "DELETE",
-  });
-};
-
-export const renameProjectTile = async (
-  projectId: string,
-  tileId: string,
-  payload: ProjectTileRenamePayload
-): Promise<ProjectTileRenameResult> => {
-  return fetchJson<ProjectTileRenameResult>(`/api/projects/${projectId}/tiles/${tileId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
   });
 };
 

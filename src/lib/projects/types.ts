@@ -78,15 +78,6 @@ export type ProjectTileDeleteResult = {
   warnings: string[];
 };
 
-export type ProjectTileRenamePayload = {
-  name: string;
-};
-
-export type ProjectTileRenameResult = {
-  store: ProjectsStore;
-  warnings: string[];
-};
-
 export type ProjectTileUpdatePayload = {
   name?: string;
   avatarSeed?: string | null;
