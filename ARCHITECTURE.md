@@ -27,7 +27,7 @@ This keeps feature cohesion high while preserving a clear client/server boundary
 
 ## Main modules / bounded contexts
 - **Canvas UI** (`src/features/canvas`): React Flow canvas, tiles, editor UI, local in-memory state + actions.
-- **Projects** (`src/lib/projects`, `src/app/api/projects`): project/tile models, store persistence, shared store normalization and mutation helpers in `src/app/api/projects/store.ts`, workspace files, heartbeat settings, shared project/tile resolution (`src/lib/projects/resolve.ts`) plus API response helpers in `src/app/api/projects/resolveResponse.ts`, shared sessionKey helpers in `src/lib/projects/sessionKey.ts`, shared workspace file helpers in `src/lib/projects/workspaceFiles.ts`, server-side workspace file read/write helpers in `src/lib/projects/workspaceFiles.server.ts`, agent-canvas path helper in `src/lib/projects/agentWorkspace.ts`, server-side filesystem helpers (`src/lib/projects/fs.server.ts`) including shared agent cleanup.
+- **Projects** (`src/lib/projects`, `src/app/api/projects`): project/tile models, store persistence, shared store normalization and mutation helpers in `src/app/api/projects/store.ts`, workspace files, heartbeat settings, shared project/tile resolution (`src/lib/projects/resolve.ts`) plus API response helpers in `src/app/api/projects/resolveResponse.ts`, shared sessionKey helpers in `src/lib/projects/sessionKey.ts`, shared workspace file helpers in `src/lib/projects/workspaceFiles.ts`, server-side workspace file read/write helpers in `src/lib/projects/workspaceFiles.server.ts`, agent-canvas path helper in `src/lib/projects/agentWorkspace.ts`, server-side filesystem helpers (`src/lib/projects/fs.server.ts`) including shared agent cleanup. Workspace create/open is handled by `POST /api/projects` in `src/app/api/projects/route.ts` using name-or-path payloads.
 - **Gateway** (`src/lib/gateway`): WebSocket client for agent runtime (frames, connect, request/response).
 - **Clawdbot config + paths** (`src/lib/clawdbot`): read/write moltbot.json, shared agent list helpers (used by heartbeat routes), shared config update helper for routes, heartbeat defaults, consolidated state/config/.env path resolution (`src/lib/clawdbot/paths.ts`).
 - **Discord integration** (`src/lib/discord`, API route): channel provisioning and config binding.
@@ -51,7 +51,7 @@ This keeps feature cohesion high while preserving a clear client/server boundary
 Flow:
 1. UI dispatches action.
 2. Client calls `lib/projects/client`.
-3. API route mutates store + writes files/config.
+3. API route mutates store + writes files/config; workspace create/open both use `POST /api/projects`.
 4. API returns updated store.
 5. Client hydrates store into runtime state.
 

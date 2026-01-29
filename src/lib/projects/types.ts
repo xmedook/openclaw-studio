@@ -28,23 +28,20 @@ export type ProjectsStore = {
   projects: Project[];
 };
 
+export type ProjectCreateOrOpenPayload =
+  | { name: string; path?: never }
+  | { path: string; name?: never };
+
+export type ProjectCreateOrOpenResult = {
+  store: ProjectsStore;
+  warnings: string[];
+};
+
 export type ProjectCreatePayload = {
   name: string;
 };
 
-export type ProjectCreateResult = {
-  store: ProjectsStore;
-  warnings: string[];
-};
-
-export type ProjectOpenPayload = {
-  path: string;
-};
-
-export type ProjectOpenResult = {
-  store: ProjectsStore;
-  warnings: string[];
-};
+export type ProjectCreateResult = ProjectCreateOrOpenResult;
 
 export type ProjectDeleteResult = {
   store: ProjectsStore;

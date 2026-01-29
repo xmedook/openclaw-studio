@@ -4,8 +4,8 @@ import type {
   ProjectDeleteResult,
   ProjectDiscordChannelCreatePayload,
   ProjectDiscordChannelCreateResult,
-  ProjectOpenPayload,
-  ProjectOpenResult,
+  ProjectCreateOrOpenPayload,
+  ProjectCreateOrOpenResult,
   ProjectTileCreatePayload,
   ProjectTileCreateResult,
   ProjectTileDeleteResult,
@@ -36,9 +36,9 @@ export const createProject = async (
 };
 
 export const openProject = async (
-  payload: ProjectOpenPayload
-): Promise<ProjectOpenResult> => {
-  return fetchJson<ProjectOpenResult>("/api/projects/open", {
+  payload: ProjectCreateOrOpenPayload
+): Promise<ProjectCreateOrOpenResult> => {
+  return fetchJson<ProjectCreateOrOpenResult>("/api/projects", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
