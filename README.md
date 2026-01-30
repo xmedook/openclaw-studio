@@ -1,10 +1,13 @@
-# openclaw-studio
+# OpenClaw Studio
 
 ![Read Me Image](readme-image.png)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/GAr9Qfem)
 
 When you run multiple agents, you need a place to see what's happening.
 
 OpenClaw Studio is that place. It's the visual interface for the OpenClaw ecosystem—designed for people who coordinate agents across workspaces, track long-running tasks, and need to stay oriented when the work gets complex.
+
+Join the Discord: [https://discord.gg/GAr9Qfem](https://discord.gg/GAr9Qfem). I'm also looking for contributors who want to help shape OpenClaw Studio.
 
 The terminal is good for single commands. But agents don't work in single commands. They work in threads. They share context. They produce files that evolve. They run in parallel, and you need to know what's running where.
 
