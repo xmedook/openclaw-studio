@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 // (ReactFlowInstance import removed)
 import { CanvasFlow } from "@/features/canvas/components/CanvasFlow";
 import { AgentInspectPanel } from "@/features/canvas/components/AgentInspectPanel";
 import { HeaderBar } from "@/features/canvas/components/HeaderBar";
+import { WorkspaceSettingsPanel } from "@/features/canvas/components/WorkspaceSettingsPanel";
 import { MAX_TILE_HEIGHT, MIN_TILE_SIZE } from "@/lib/canvasTileDefaults";
 import { screenToWorld, worldToScreen } from "@/features/canvas/lib/transform";
 import { extractText } from "@/lib/text/extractText";
@@ -181,37 +182,31 @@ const AgentCanvasPage = () => {
     state,
     dispatch,
     createTile,
-    createOrOpenProject,
-    deleteProject,
-    restoreProject,
+    refreshStore,
     deleteTile,
     restoreTile,
     renameTile,
     updateTile,
   } = useAgentCanvasStore();
   const activeProject = getActiveProject(state);
-  const [showProjectForm, setShowProjectForm] = useState(false);
-  const [showOpenProjectForm, setShowOpenProjectForm] = useState(false);
-  const [projectName, setProjectName] = useState("");
-  const [projectPath, setProjectPath] = useState("");
-  const [projectWarnings, setProjectWarnings] = useState<string[]>([]);
-  const [openProjectWarnings, setOpenProjectWarnings] = useState<string[]>([]);
+  const [showWorkspaceSettings, setShowWorkspaceSettings] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const historyInFlightRef = useRef<Set<string>>(new Set());
   const stateRef = useRef(state);
   const summaryRefreshRef = useRef<number | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [gatewayModels, setGatewayModels] = useState<GatewayModelChoice[]>([]);
   const [gatewayModelsError, setGatewayModelsError] = useState<string | null>(null);
   const [inspectTileId, setInspectTileId] = useState<string | null>(null);
+  const [headerOffset, setHeaderOffset] = useState(0);
   // flowInstance removed (zoom controls live in the bottom-right ReactFlow Controls).
 
   const visibleProjects = useMemo(
     () => filterArchivedItems(state.projects, showArchived),
     [state.projects, showArchived]
   );
-  const hasAnyProjects = state.projects.length > 0;
   const hasArchivedTiles = useMemo(
     () => state.projects.some((entry) => entry.tiles.some((tile) => tile.archivedAt)),
     [state.projects]
@@ -226,6 +221,8 @@ const AgentCanvasPage = () => {
     () => filterArchivedItems(project?.tiles ?? [], showArchived),
     [project?.tiles, showArchived]
   );
+  const workspacePath = project?.repoPath?.trim() ?? "";
+  const needsWorkspace = state.needsWorkspace || !workspacePath;
   const inspectTile = useMemo(() => {
     if (!inspectTileId || !project) return null;
     return project.tiles.find((entry) => entry.id === inspectTileId) ?? null;
@@ -389,6 +386,18 @@ const AgentCanvasPage = () => {
   }, [state]);
 
   useEffect(() => {
+    const node = headerRef.current;
+    if (!node) return;
+    const update = () => {
+      setHeaderOffset(node.offsetHeight || 0);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     if (!inspectTileId) return;
     if (state.selectedTileId && state.selectedTileId !== inspectTileId) {
       setInspectTileId(null);
@@ -465,7 +474,7 @@ const AgentCanvasPage = () => {
       new Set(
         tiles
           .map((tile) => tile.sessionKey)
-          .filter((key): key is string => typeof key === "string" && key.trim())
+          .filter((key): key is string => typeof key === "string" && key.trim().length > 0)
       )
     ).slice(0, 64);
     if (sessionKeys.length === 0) return;
@@ -589,6 +598,10 @@ const AgentCanvasPage = () => {
 
   const handleNewAgent = useCallback(async () => {
     if (!project || project.archivedAt) return;
+    if (needsWorkspace) {
+      setShowWorkspaceSettings(true);
+      return;
+    }
     const name = createRandomAgentName();
     const result = await createTile(project.id, name, "coding");
     if (!result) return;
@@ -601,7 +614,7 @@ const AgentCanvasPage = () => {
       patch: { position: nextPosition },
     });
     dispatch({ type: "selectTile", tileId: result.tile.id });
-  }, [computeNewTilePosition, createTile, dispatch, project]);
+  }, [computeNewTilePosition, createTile, dispatch, needsWorkspace, project]);
 
   const loadTileHistory = useCallback(
     async (projectId: string, tileId: string) => {
@@ -715,6 +728,10 @@ const AgentCanvasPage = () => {
   const handleSend = useCallback(
     async (tileId: string, sessionKey: string, message: string) => {
       if (!project) return;
+      if (needsWorkspace) {
+        window.alert("Set a workspace path before sending instructions.");
+        return;
+      }
       const trimmed = message.trim();
       if (!trimmed) return;
       const isResetCommand = /^\/(reset|new)(\s|$)/i.test(trimmed);
@@ -777,8 +794,7 @@ const AgentCanvasPage = () => {
         await client.call("chat.send", {
           sessionKey,
           message: buildAgentInstruction({
-            worktreePath: tile.workspacePath,
-            repoPath: project.repoPath,
+            workspacePath: tile.workspacePath,
             message: trimmed,
           }),
           deliver: false,
@@ -800,7 +816,7 @@ const AgentCanvasPage = () => {
         });
       }
     },
-    [client, dispatch, project]
+    [client, dispatch, needsWorkspace, project]
   );
 
   const handleModelChange = useCallback(
@@ -1057,64 +1073,14 @@ const AgentCanvasPage = () => {
 
   // Zoom controls are available in the bottom-right of the canvas.
 
-  const handleToggleProjectForm = useCallback(() => {
-    setProjectWarnings([]);
-    setOpenProjectWarnings([]);
-    setShowOpenProjectForm(false);
-    setShowProjectForm((prev) => !prev);
+  const handleOpenWorkspaceSettings = useCallback(() => {
+    setShowWorkspaceSettings(true);
   }, []);
 
-  const handleToggleOpenProjectForm = useCallback(() => {
-    setProjectWarnings([]);
-    setOpenProjectWarnings([]);
-    setShowProjectForm(false);
-    setShowOpenProjectForm((prev) => !prev);
-  }, []);
-
-  const handleProjectCreate = useCallback(async () => {
-    if (!projectName.trim()) {
-      setProjectWarnings(["Workspace name is required."]);
-      return;
-    }
-    const result = await createOrOpenProject({ name: projectName.trim() });
-    if (!result) return;
-    setProjectWarnings(result.warnings);
-    setProjectName("");
-    setShowProjectForm(false);
-  }, [createOrOpenProject, projectName]);
-
-  const handleProjectOpen = useCallback(async () => {
-    if (!projectPath.trim()) {
-      setOpenProjectWarnings(["Workspace path is required."]);
-      return;
-    }
-    const result = await createOrOpenProject({ path: projectPath.trim() });
-    if (!result) return;
-    setOpenProjectWarnings(result.warnings);
-    setProjectPath("");
-    setShowOpenProjectForm(false);
-  }, [createOrOpenProject, projectPath]);
-
-  const handleProjectDelete = useCallback(async () => {
-    if (!project) return;
-    if (project.archivedAt) {
-      const result = await restoreProject(project.id);
-      if (result?.warnings.length) {
-        window.alert(result.warnings.join("\n"));
-      }
-      return;
-    }
-    const confirmation = window.prompt(
-      `Type ARCHIVE ${project.name} to confirm workspace archive.`
-    );
-    if (confirmation !== `ARCHIVE ${project.name}`) {
-      return;
-    }
-    const result = await deleteProject(project.id);
-    if (result?.warnings.length) {
-      window.alert(result.warnings.join("\n"));
-    }
-  }, [deleteProject, project, restoreProject]);
+  const handleWorkspaceSettingsSaved = useCallback(async () => {
+    setShowWorkspaceSettings(false);
+    await refreshStore();
+  }, [refreshStore]);
 
   const handleCleanupArchived = useCallback(async () => {
     try {
@@ -1143,6 +1109,10 @@ const AgentCanvasPage = () => {
 
   const handleCreateDiscordChannel = useCallback(async () => {
     if (!project || project.archivedAt) return;
+    if (needsWorkspace) {
+      window.alert("Set a workspace path first.");
+      return;
+    }
     if (!state.selectedTileId) {
       window.alert("Select an agent tile first.");
       return;
@@ -1168,7 +1138,7 @@ const AgentCanvasPage = () => {
         err instanceof Error ? err.message : "Failed to create Discord channel.";
       window.alert(message);
     }
-  }, [project, state.selectedTileId]);
+  }, [needsWorkspace, project, state.selectedTileId]);
 
   const handleTileDelete = useCallback(
     async (tileId: string) => {
@@ -1178,11 +1148,14 @@ const AgentCanvasPage = () => {
       const result = tile.archivedAt
         ? await restoreTile(project.id, tileId)
         : await deleteTile(project.id, tileId);
+      if (!tile.archivedAt && inspectTileId === tileId) {
+        setInspectTileId(null);
+      }
       if (result?.warnings.length) {
         window.alert(result.warnings.join("\n"));
       }
     },
-    [deleteTile, project, restoreTile]
+    [deleteTile, inspectTileId, project, restoreTile]
   );
 
   const handleAvatarShuffle = useCallback(
@@ -1288,50 +1261,52 @@ const AgentCanvasPage = () => {
       />
 
       {inspectTile && project ? (
-        <AgentInspectPanel
-          key={inspectTile.id}
-          tile={inspectTile}
-          projectId={project.id}
-          models={gatewayModels}
-          onClose={() => setInspectTileId(null)}
-          onLoadHistory={() => handleLoadHistory(inspectTile.id)}
-          onModelChange={(value) =>
-            handleModelChange(inspectTile.id, inspectTile.sessionKey, value)
+        <div
+          style={
+            {
+              "--header-offset": `${headerOffset}px`,
+            } as CSSProperties
           }
-          onThinkingChange={(value) =>
-            handleThinkingChange(inspectTile.id, inspectTile.sessionKey, value)
-          }
-          onDelete={() => handleTileDelete(inspectTile.id)}
-        />
+        >
+          <AgentInspectPanel
+            key={inspectTile.id}
+            tile={inspectTile}
+            projectId={project.id}
+            models={gatewayModels}
+            onClose={() => setInspectTileId(null)}
+            onLoadHistory={() => handleLoadHistory(inspectTile.id)}
+            onModelChange={(value) =>
+              handleModelChange(inspectTile.id, inspectTile.sessionKey, value)
+            }
+            onThinkingChange={(value) =>
+              handleThinkingChange(inspectTile.id, inspectTile.sessionKey, value)
+            }
+            onDelete={() => handleTileDelete(inspectTile.id)}
+          />
+        </div>
       ) : null}
 
       <div className="pointer-events-none absolute inset-0 z-10 flex flex-col gap-4 p-6">
-        <div className="pointer-events-auto mx-auto w-full max-w-6xl">
-          <HeaderBar
-            projects={visibleProjects.map((entry) => ({
-              id: entry.id,
-              name: entry.name,
-              archivedAt: entry.archivedAt,
-            }))}
-            hasAnyProjects={hasAnyProjects}
-            activeProjectId={project?.id ?? null}
-            status={status}
-            onProjectChange={(projectId) =>
-              dispatch({
-                type: "setActiveProject",
-                projectId: projectId.trim() ? projectId : null,
-              })
+        <div ref={headerRef} className="pointer-events-auto mx-auto w-full max-w-4xl">
+            <HeaderBar
+            workspaceLabel={
+              needsWorkspace
+                ? "Workspace not set"
+                : project?.name?.trim()
+                  ? project.name
+                  : "Workspace"
             }
-            onCreateProject={handleToggleProjectForm}
-            onOpenProject={handleToggleOpenProjectForm}
-            onDeleteProject={handleProjectDelete}
+            workspacePath={workspacePath || null}
+            hasAnyTiles={Boolean(project?.tiles.length)}
+            status={status}
             showArchived={showArchived}
             onToggleArchived={() => setShowArchived((prev) => !prev)}
-            activeProjectArchived={Boolean(project?.archivedAt)}
             onNewAgent={handleNewAgent}
+            canCreateAgent={Boolean(project && !project.archivedAt && !needsWorkspace)}
+            onWorkspaceSettings={handleOpenWorkspaceSettings}
             onCreateDiscordChannel={handleCreateDiscordChannel}
             canCreateDiscordChannel={Boolean(
-              project && tiles.length > 0 && !project.archivedAt
+              project && tiles.length > 0 && !project.archivedAt && !needsWorkspace
             )}
             onCleanupArchived={handleCleanupArchived}
             canCleanupArchived={hasArchivedTiles}
@@ -1341,89 +1316,17 @@ const AgentCanvasPage = () => {
         {state.loading ? (
           <div className="pointer-events-auto mx-auto w-full max-w-4xl">
             <div className="glass-panel px-6 py-6 text-muted-foreground">
-              Loading workspaces…
+              Loading workspace…
             </div>
           </div>
         ) : null}
 
-        {showProjectForm ? (
+        {showWorkspaceSettings ? (
           <div className="pointer-events-auto mx-auto w-full max-w-5xl">
-            <div className="glass-panel px-6 py-6">
-              <div className="flex flex-col gap-4">
-                <div className="grid gap-4">
-                  <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                    Workspace name
-                    <input
-                      className="h-11 rounded-lg border border-input bg-background px-4 text-sm text-foreground outline-none"
-                      value={projectName}
-                      onChange={(event) => setProjectName(event.target.value)}
-                    />
-                  </label>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    className="rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground"
-                    type="button"
-                    onClick={handleProjectCreate}
-                  >
-                    Create Workspace
-                  </button>
-                  <button
-                    className="rounded-lg border border-input px-5 py-2 text-sm font-semibold text-foreground"
-                    type="button"
-                    onClick={() => setShowProjectForm(false)}
-                  >
-                    Cancel
-                  </button>
-                </div>
-                {projectWarnings.length > 0 ? (
-                  <div className="rounded-lg border border-border bg-accent px-4 py-2 text-sm text-accent-foreground">
-                    {projectWarnings.join(" ")}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {showOpenProjectForm ? (
-          <div className="pointer-events-auto mx-auto w-full max-w-5xl">
-            <div className="glass-panel px-6 py-6">
-              <div className="flex flex-col gap-4">
-                <div className="grid gap-4">
-                  <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                    Workspace path
-                    <input
-                      className="h-11 rounded-lg border border-input bg-background px-4 text-sm text-foreground outline-none"
-                      value={projectPath}
-                      onChange={(event) => setProjectPath(event.target.value)}
-                      placeholder="/Users/you/repos/my-workspace"
-                    />
-                  </label>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    className="rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground"
-                    type="button"
-                    onClick={handleProjectOpen}
-                  >
-                    Open Workspace
-                  </button>
-                  <button
-                    className="rounded-lg border border-input px-5 py-2 text-sm font-semibold text-foreground"
-                    type="button"
-                    onClick={() => setShowOpenProjectForm(false)}
-                  >
-                    Cancel
-                  </button>
-                </div>
-                {openProjectWarnings.length > 0 ? (
-                  <div className="rounded-lg border border-border bg-accent px-4 py-2 text-sm text-accent-foreground">
-                    {openProjectWarnings.join(" ")}
-                  </div>
-                ) : null}
-              </div>
-            </div>
+            <WorkspaceSettingsPanel
+              onClose={() => setShowWorkspaceSettings(false)}
+              onSaved={handleWorkspaceSettingsSaved}
+            />
           </div>
         ) : null}
 
@@ -1435,18 +1338,17 @@ const AgentCanvasPage = () => {
           </div>
         ) : null}
 
-        {!state.loading && !showProjectForm && !showOpenProjectForm && !hasAnyProjects ? (
+        {!state.loading && needsWorkspace && !showWorkspaceSettings ? (
           <div className="pointer-events-auto mx-auto w-full max-w-5xl">
             <div className="glass-panel px-8 py-10">
               <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-center">
                 <div className="flex flex-col gap-5">
                   <div className="space-y-2">
                     <h2 className="text-2xl font-semibold text-foreground sm:text-3xl">
-                      Run autonomous agents. Watch progress, not prompts.
+                      Set a workspace path to begin.
                     </h2>
                     <p className="text-sm text-muted-foreground">
-                      A shared workspace where agents explore, build, and report progress
-                      in real time.
+                      Point Studio at the repo or folder where agents should operate.
                     </p>
                   </div>
 
@@ -1455,13 +1357,14 @@ const AgentCanvasPage = () => {
                       <button
                         className="rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition hover:brightness-110"
                         type="button"
-                        onClick={handleToggleProjectForm}
+                        onClick={handleOpenWorkspaceSettings}
+                        data-testid="workspace-settings-cta"
                       >
-                        Create a workspace
+                        Set workspace path
                       </button>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Takes ~30 seconds. No configuration required.
+                      You can change this any time in Workspace Settings.
                     </p>
                   </div>
                 </div>

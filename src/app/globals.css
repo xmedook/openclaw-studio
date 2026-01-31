@@ -306,8 +306,8 @@ textarea:focus::-webkit-scrollbar {
 .agent-inspect-panel {
   position: absolute;
   left: 0;
-  top: 0;
-  bottom: 0;
+  top: var(--header-offset, 0px);
+  height: calc(100% - var(--header-offset, 0px));
   width: min(92vw, 420px);
   background: var(--card);
   border-right: 1px solid var(--border);

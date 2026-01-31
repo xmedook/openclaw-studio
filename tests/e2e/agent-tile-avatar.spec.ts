@@ -15,9 +15,9 @@ const store = {
         {
           id: "tile-1",
           name: "Agent A",
-          agentId: "agent-1",
+          agentId: "main",
           role: "coding",
-          sessionKey: "agent:agent-1:main",
+          sessionKey: "agent:main:studio:tile-1",
           workspacePath: "/Users/demo",
           archivedAt: null,
           model: null,

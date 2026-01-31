@@ -19,7 +19,7 @@ const NEW_STATE_DIRNAME = ".openclaw";
 const CONFIG_FILENAME = "openclaw.json";
 const LEGACY_CONFIG_FILENAMES = ["clawdbot.json", "moltbot.json"];
 
-const resolveUserPath = (input, homedir = os.homedir) => {
+const resolveUserPath = (input: string, homedir: () => string = os.homedir) => {
   const trimmed = input.trim();
   if (!trimmed) return trimmed;
   if (trimmed.startsWith("~")) {
@@ -79,15 +79,15 @@ const resolveConfigPathCandidates = (env = process.env, homedir = os.homedir) =>
 
 const resolveAgentCanvasDir = () => path.join(resolveStateDir(), "openclaw-studio");
 
-const resolveAgentWorktreeDir = (projectId, agentId) =>
+const resolveAgentWorktreeDir = (projectId: string, agentId: string) =>
   path.join(resolveAgentCanvasDir(), "worktrees", projectId, agentId);
 
-const parseAgentIdFromSessionKey = (sessionKey, fallback = "main") => {
+const parseAgentIdFromSessionKey = (sessionKey: string, fallback = "main") => {
   const match = sessionKey.match(/^agent:([^:]+):/);
   return match ? match[1] : fallback;
 };
 
-const parseJsonLoose = (raw) => {
+const parseJsonLoose = (raw: string) => {
   try {
     return JSON.parse(raw);
   } catch {
@@ -96,7 +96,7 @@ const parseJsonLoose = (raw) => {
   }
 };
 
-const loadStore = (storePath) => {
+const loadStore = (storePath: string) => {
   const raw = fs.readFileSync(storePath, "utf8");
   const parsed = JSON.parse(raw);
   if (!parsed || !Array.isArray(parsed.projects)) {
@@ -105,13 +105,19 @@ const loadStore = (storePath) => {
   return parsed;
 };
 
-const normalizeStore = (store) => {
-  const projects = Array.isArray(store.projects) ? store.projects : [];
+const normalizeStore = (store: { projects?: unknown[]; activeProjectId?: unknown }) => {
+  const projects = Array.isArray(store.projects)
+    ? (store.projects as Array<Record<string, unknown>>)
+    : [];
   const normalizedProjects = projects.map((project) => {
     const projectId = typeof project.id === "string" ? project.id : "";
     const tiles = Array.isArray(project.tiles) ? project.tiles : [];
     return {
-      ...project,
+      id: projectId,
+      name: typeof project.name === "string" ? project.name : "",
+      repoPath: typeof project.repoPath === "string" ? project.repoPath : "",
+      createdAt: typeof project.createdAt === "number" ? project.createdAt : Date.now(),
+      updatedAt: typeof project.updatedAt === "number" ? project.updatedAt : Date.now(),
       archivedAt: typeof project.archivedAt === "number" ? project.archivedAt : null,
       tiles: tiles.map((tile) => {
         const agentId =
@@ -147,7 +153,7 @@ const normalizeStore = (store) => {
   };
 };
 
-const resolveGitDir = (worktreeDir) => {
+const resolveGitDir = (worktreeDir: string) => {
   const gitPath = path.join(worktreeDir, ".git");
   const stat = fs.statSync(gitPath);
   if (stat.isDirectory()) {
@@ -164,7 +170,7 @@ const resolveGitDir = (worktreeDir) => {
   return path.resolve(worktreeDir, match[1].trim());
 };
 
-const ensureWorktreeIgnores = (worktreeDir, files) => {
+const ensureWorktreeIgnores = (worktreeDir: string, files: string[]) => {
   if (files.length === 0) return;
   const gitDir = resolveGitDir(worktreeDir);
   const infoDir = path.join(gitDir, "info");
@@ -182,7 +188,7 @@ const ensureWorktreeIgnores = (worktreeDir, files) => {
   fs.writeFileSync(excludePath, next, "utf8");
 };
 
-const ensureAgentWorktree = (repoPath, worktreeDir, branchName) => {
+const ensureAgentWorktree = (repoPath: string, worktreeDir: string, branchName: string) => {
   const trimmedRepo = repoPath.trim();
   if (!trimmedRepo) {
     throw new Error("Repository path is required.");
@@ -229,7 +235,7 @@ const ensureAgentWorktree = (repoPath, worktreeDir, branchName) => {
   }
 };
 
-const ensureWorkspaceFiles = (workspaceDir) => {
+const ensureWorkspaceFiles = (workspaceDir: string) => {
   fs.mkdirSync(workspaceDir, { recursive: true });
   for (const name of WORKSPACE_FILE_NAMES) {
     const filePath = path.join(workspaceDir, name);
@@ -240,7 +246,7 @@ const ensureWorkspaceFiles = (workspaceDir) => {
   fs.mkdirSync(path.join(workspaceDir, "memory"), { recursive: true });
 };
 
-const copyWorkspaceFile = (fromPath, toPath) => {
+const copyWorkspaceFile = (fromPath: string, toPath: string) => {
   if (!fs.existsSync(fromPath)) return false;
   if (fs.existsSync(toPath)) {
     const current = fs.readFileSync(toPath, "utf8");
@@ -250,7 +256,7 @@ const copyWorkspaceFile = (fromPath, toPath) => {
   return true;
 };
 
-const copyWorkspaceMemory = (fromDir, toDir) => {
+const copyWorkspaceMemory = (fromDir: string, toDir: string) => {
   if (!fs.existsSync(fromDir)) return 0;
   fs.mkdirSync(toDir, { recursive: true });
   let copied = 0;
@@ -267,7 +273,7 @@ const copyWorkspaceMemory = (fromDir, toDir) => {
   return copied;
 };
 
-const reserveLegacyPath = (targetPath) => {
+const reserveLegacyPath = (targetPath: string) => {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   let candidate = `${targetPath}.legacy-${stamp}`;
   let suffix = 1;
@@ -278,7 +284,7 @@ const reserveLegacyPath = (targetPath) => {
   return candidate;
 };
 
-const ensureLegacyWorktreeSlot = (worktreeDir) => {
+const ensureLegacyWorktreeSlot = (worktreeDir: string) => {
   if (!fs.existsSync(worktreeDir)) return null;
   if (fs.existsSync(path.join(worktreeDir, ".git"))) return null;
   const legacyPath = reserveLegacyPath(worktreeDir);
@@ -286,19 +292,27 @@ const ensureLegacyWorktreeSlot = (worktreeDir) => {
   return legacyPath;
 };
 
-const readAgentList = (config) => {
+const readAgentList = (config: {
+  agents?: { list?: Array<{ id?: string; name?: string; workspace?: string }> };
+}) => {
   const agents = config.agents ?? {};
   const list = Array.isArray(agents.list) ? agents.list : [];
   return list.filter((entry) => Boolean(entry && typeof entry === "object"));
 };
 
-const writeAgentList = (config, list) => {
+const writeAgentList = (
+  config: { agents?: { list?: Array<{ id?: string; name?: string; workspace?: string }> } },
+  list: Array<{ id?: string; name?: string; workspace?: string }>
+) => {
   const agents = config.agents ?? {};
   agents.list = list;
   config.agents = agents;
 };
 
-const upsertAgentEntry = (config, entry) => {
+const upsertAgentEntry = (
+  config: { agents?: { list?: Array<{ id?: string; name?: string; workspace?: string }> } },
+  entry: { agentId: string; agentName: string; workspaceDir: string }
+) => {
   const list = readAgentList(config);
   let changed = false;
   let found = false;
@@ -337,7 +351,7 @@ const loadClawdbotConfig = () => {
   return { config: parseJsonLoose(raw), configPath };
 };
 
-const saveClawdbotConfig = (configPath, config) => {
+const saveClawdbotConfig = (configPath: string, config: unknown) => {
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf8");
 };
 

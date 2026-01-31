@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 
+import fs from "node:fs";
+
 import { logger } from "@/lib/logger";
 import { createDiscordChannelForAgent } from "@/lib/discord/discordChannel";
-import { resolveAgentWorktreeDir } from "@/lib/projects/worktrees.server";
 import { resolveProjectFromParams } from "@/lib/projects/resolve.server";
+import { resolveWorkspaceSelection } from "@/lib/studio/workspaceSettings.server";
 
 export const runtime = "nodejs";
 
@@ -34,7 +36,27 @@ export async function POST(
       return resolved.response;
     }
 
-    const workspaceDir = resolveAgentWorktreeDir(resolved.projectId, agentId);
+    const selection = resolveWorkspaceSelection();
+    const workspaceDir = selection.workspacePath?.trim() ?? "";
+    if (!workspaceDir) {
+      return NextResponse.json(
+        { error: "Workspace path is not configured." },
+        { status: 400 }
+      );
+    }
+    if (!fs.existsSync(workspaceDir)) {
+      return NextResponse.json(
+        { error: `Workspace path does not exist: ${workspaceDir}` },
+        { status: 404 }
+      );
+    }
+    const stat = fs.statSync(workspaceDir);
+    if (!stat.isDirectory()) {
+      return NextResponse.json(
+        { error: `Workspace path is not a directory: ${workspaceDir}` },
+        { status: 400 }
+      );
+    }
     const result = await createDiscordChannelForAgent({
       agentId,
       agentName,

@@ -7,7 +7,7 @@ describe("tile summary reducer", () => {
     const patch = getChatSummaryPatch(
       {
         runId: "run-1",
-        sessionKey: "agent:agent-1:main",
+        sessionKey: "agent:main:studio:tile-1",
         state: "final",
         message: { role: "assistant", content: "Hello" },
       },

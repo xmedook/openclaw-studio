@@ -21,10 +21,10 @@ afterEach(() => {
 const makeTile = (): ProjectTile => ({
   id: "tile-1",
   name: "Tile",
-  agentId: "agent-1",
+  agentId: "main",
   role: "coding",
-  sessionKey: "agent:agent-1:main",
-  workspacePath: "/tmp/worktrees/agent-1",
+  sessionKey: "agent:main:studio:tile-1",
+  workspacePath: "/tmp/workspace",
   archivedAt: null,
   model: "openai-codex/gpt-5.2-codex",
   thinkingLevel: null,

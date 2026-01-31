@@ -28,10 +28,10 @@ const makeProject = (id: string): Project => ({
 const makeTile = (id: string): ProjectTile => ({
   id,
   name: `Tile ${id}`,
-  agentId: `agent-${id}`,
+  agentId: "main",
   role: "coding",
-  sessionKey: `agent:agent-${id}:main`,
-  workspacePath: `/tmp/worktrees/${id}`,
+  sessionKey: `agent:main:studio:${id}`,
+  workspacePath: `/tmp/workspace`,
   archivedAt: null,
   model: "openai-codex/gpt-5.2-codex",
   thinkingLevel: null,

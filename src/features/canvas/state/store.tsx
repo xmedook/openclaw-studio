@@ -44,6 +44,7 @@ export type AgentTile = ProjectTile & {
   lastUserMessage: string | null;
   draft: string;
   sessionSettingsSynced: boolean;
+  historyLoadedAt: number | null;
 };
 
 export type ProjectRuntime = Omit<Project, "tiles"> & {
@@ -63,6 +64,7 @@ export type CanvasState = {
   canvas: CanvasTransform;
   loading: boolean;
   error: string | null;
+  needsWorkspace: boolean;
 };
 
 type Action =
@@ -87,6 +89,7 @@ const initialState: CanvasState = {
   canvas: { zoom: CANVAS_BASE_ZOOM, offsetX: 0, offsetY: 0 },
   loading: true,
   error: null,
+  needsWorkspace: false,
 };
 
 const clampTileHeight = (height: number) =>
@@ -103,7 +106,7 @@ const clampTileSize = (size: TileSize): TileSize => ({
 const createRuntimeTile = (tile: ProjectTile): AgentTile => ({
   ...tile,
   size: clampTileSize(tile.size),
-  sessionKey: tile.sessionKey || buildSessionKey(tile.agentId),
+  sessionKey: tile.sessionKey || buildSessionKey(tile.agentId, tile.id),
   model: tile.model ?? "openai-codex/gpt-5.2-codex",
   thinkingLevel: tile.thinkingLevel ?? "low",
   avatarSeed: tile.avatarSeed ?? tile.agentId,
@@ -120,6 +123,7 @@ const createRuntimeTile = (tile: ProjectTile): AgentTile => ({
   lastUserMessage: null,
   draft: "",
   sessionSettingsSynced: false,
+  historyLoadedAt: null,
 });
 
 const hydrateProject = (project: Project): ProjectRuntime => ({
@@ -130,6 +134,7 @@ const hydrateProject = (project: Project): ProjectRuntime => ({
 const dehydrateStore = (state: CanvasState): ProjectsStore => ({
   version: 3,
   activeProjectId: state.activeProjectId,
+  needsWorkspace: state.needsWorkspace,
   projects: state.projects.map((project) => ({
     id: project.id,
     name: project.name,
@@ -176,6 +181,7 @@ const reducer = (state: CanvasState, action: Action): CanvasState => {
         activeProjectId,
         loading: false,
         error: null,
+        needsWorkspace: Boolean(action.store.needsWorkspace),
       };
     }
     case "setError":

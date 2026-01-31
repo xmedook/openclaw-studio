@@ -19,11 +19,27 @@ import type {
   ProjectTileWorkspaceFilesResult,
   ProjectTileWorkspaceFilesUpdatePayload,
   ProjectsStore,
+  WorkspaceSettingsResult,
+  WorkspaceSettingsUpdatePayload,
 } from "./types";
 import { fetchJson } from "@/lib/http";
 
 export const fetchProjectsStore = async (): Promise<ProjectsStore> => {
   return fetchJson<ProjectsStore>("/api/projects", { cache: "no-store" });
+};
+
+export const fetchWorkspaceSettings = async (): Promise<WorkspaceSettingsResult> => {
+  return fetchJson<WorkspaceSettingsResult>("/api/workspace", { cache: "no-store" });
+};
+
+export const updateWorkspaceSettings = async (
+  payload: WorkspaceSettingsUpdatePayload
+): Promise<WorkspaceSettingsResult> => {
+  return fetchJson<WorkspaceSettingsResult>("/api/workspace", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 };
 
 export const createOrOpenProject = async (

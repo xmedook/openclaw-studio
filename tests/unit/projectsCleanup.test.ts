@@ -6,10 +6,10 @@ import { selectArchivedTilesForCleanup } from "@/lib/projects/cleanup";
 const makeTile = (id: string, archivedAt: number | null): ProjectTile => ({
   id,
   name: `Tile ${id}`,
-  agentId: `agent-${id}`,
+  agentId: "main",
   role: "coding",
-  sessionKey: `agent:agent-${id}:main`,
-  workspacePath: `/tmp/${id}`,
+  sessionKey: `agent:main:studio:${id}`,
+  workspacePath: `/tmp/workspace`,
   archivedAt,
   model: "openai-codex/gpt-5.2-codex",
   thinkingLevel: null,

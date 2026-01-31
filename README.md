@@ -5,7 +5,7 @@
 
 When you run multiple agents, you need a place to see what's happening.
 
-OpenClaw Studio is that place. It's the visual interface for the OpenClaw ecosystem—designed for people who coordinate agents across workspaces, track long-running tasks, and need to stay oriented when the work gets complex.
+OpenClaw Studio is that place. It's the visual interface for the OpenClaw ecosystem—designed for people who coordinate agents in a shared workspace, track long-running tasks, and need to stay oriented when the work gets complex.
 
 Join the Discord: [https://discord.gg/GAr9Qfem](https://discord.gg/GAr9Qfem). I'm also looking for contributors who want to help shape OpenClaw Studio.
 
@@ -15,7 +15,7 @@ OpenClaw Studio solves this. It's a local-first Next.js app that connects to you
 
 ## What it does
 
-- Shows you every agent and workspace at a glance
+- Shows you every agent at a glance
 - Keeps workspace files (AGENTS.md, MEMORY.md, etc.) right where you need them
 - Streams tool output in real time
 - Provisions Discord channels when you need them
@@ -45,6 +45,10 @@ Only create a `.env` if you need to override those defaults:
 ```bash
 cp .env.example .env
 ```
+
+## Workspace setup
+
+OpenClaw Studio operates in a single workspace path. On first launch, click **Workspace Settings** and set the folder where agents should operate (a repo or any directory). All agent tiles share this workspace path.
 
 ## Configuration
 

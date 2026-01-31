@@ -1,14 +1,18 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
 import type { Project, ProjectTile, ProjectsStore } from "@/lib/projects/types";
 import { resolveAgentCanvasDir } from "@/lib/projects/agentWorkspace";
-import { resolveAgentWorktreeDir } from "@/lib/projects/worktrees.server";
-import { parseAgentIdFromSessionKey } from "@/lib/projects/sessionKey";
+import { loadClawdbotConfig } from "@/lib/clawdbot/config";
+import { resolveDefaultAgentId } from "@/lib/clawdbot/resolveDefaultAgent";
+import { parseAgentIdFromSessionKey, buildSessionKey } from "@/lib/projects/sessionKey";
+import { resolveWorkspaceSelection } from "@/lib/studio/workspaceSettings.server";
 
 const STORE_VERSION: ProjectsStore["version"] = 3;
 const STORE_DIR = resolveAgentCanvasDir();
 const STORE_PATH = path.join(STORE_DIR, "projects.json");
+const LEGACY_STORE_PATH = path.join(STORE_DIR, "legacy-projects.json");
 
 export type ProjectsStorePayload = ProjectsStore;
 
@@ -22,6 +26,7 @@ export const defaultStore = (): ProjectsStore => ({
   version: STORE_VERSION,
   activeProjectId: null,
   projects: [],
+  needsWorkspace: false,
 });
 
 export const normalizeProjectsStore = (store: ProjectsStore): ProjectsStore => {
@@ -35,7 +40,7 @@ export const normalizeProjectsStore = (store: ProjectsStore): ProjectsStore => {
           workspacePath:
             typeof tile.workspacePath === "string" && tile.workspacePath.trim()
               ? tile.workspacePath
-              : resolveAgentWorktreeDir(project.id, tile.agentId),
+              : "",
           archivedAt: typeof tile.archivedAt === "number" ? tile.archivedAt : null,
         }))
       : [],
@@ -51,6 +56,7 @@ export const normalizeProjectsStore = (store: ProjectsStore): ProjectsStore => {
     version: STORE_VERSION,
     activeProjectId,
     projects: normalizedProjects,
+    needsWorkspace: Boolean(store.needsWorkspace),
   };
 };
 
@@ -62,6 +68,7 @@ export const appendProjectToStore = (
     version: STORE_VERSION,
     activeProjectId: project.id,
     projects: [...store.projects, project],
+    needsWorkspace: store.needsWorkspace,
   });
 
 export const removeProjectFromStore = (
@@ -75,6 +82,7 @@ export const removeProjectFromStore = (
       version: STORE_VERSION,
       activeProjectId: store.activeProjectId,
       projects,
+      needsWorkspace: store.needsWorkspace,
     }),
     removed,
   };
@@ -277,6 +285,113 @@ type RawStore = {
   projects?: RawProject[];
 };
 
+type LegacyProjectsPayload = {
+  migratedAt: number;
+  activeProjectId: string | null;
+  legacyProjects: Project[];
+};
+
+const saveLegacyProjects = (projects: Project[], activeProjectId: string | null) => {
+  if (projects.length === 0) return;
+  const payload: LegacyProjectsPayload = {
+    migratedAt: Date.now(),
+    activeProjectId,
+    legacyProjects: projects,
+  };
+  ensureStoreDir();
+  fs.writeFileSync(LEGACY_STORE_PATH, JSON.stringify(payload, null, 2), "utf8");
+};
+
+const resolveDefaultAgentIdForStore = () => {
+  try {
+    const { config } = loadClawdbotConfig();
+    return resolveDefaultAgentId(config);
+  } catch {
+    return "main";
+  }
+};
+
+const choosePrimaryProject = (
+  projects: Project[],
+  activeProjectId: string | null,
+  workspacePath: string | null
+) => {
+  const trimmedWorkspace = workspacePath?.trim() ?? "";
+  if (trimmedWorkspace) {
+    const match = projects.find((project) => project.repoPath === trimmedWorkspace);
+    if (match) return match;
+  }
+  const active =
+    activeProjectId &&
+    projects.find((project) => project.id === activeProjectId && !project.archivedAt);
+  if (active) return active;
+  return projects.find((project) => !project.archivedAt) ?? projects[0] ?? null;
+};
+
+const applySingleWorkspace = (store: ProjectsStore): ProjectsStore => {
+  const normalized = normalizeProjectsStore(store);
+  const selection = resolveWorkspaceSelection();
+  const workspacePath = selection.workspacePath?.trim() ?? "";
+  const workspaceName = selection.workspaceName?.trim() ?? "";
+
+  const defaultAgentId = resolveDefaultAgentIdForStore();
+  const resolvedWorkspacePath = workspacePath;
+
+  const primary = choosePrimaryProject(
+    normalized.projects,
+    normalized.activeProjectId,
+    resolvedWorkspacePath || null
+  );
+
+  let nextProject: Project | null = null;
+  if (primary) {
+    const name =
+      workspaceName ||
+      primary.name ||
+      (resolvedWorkspacePath ? path.basename(resolvedWorkspacePath) : "Workspace");
+    nextProject = {
+      ...primary,
+      name,
+      repoPath: resolvedWorkspacePath,
+      tiles: primary.tiles.map((tile) => ({
+        ...tile,
+        agentId: defaultAgentId,
+        sessionKey: buildSessionKey(defaultAgentId, tile.id),
+        workspacePath: resolvedWorkspacePath,
+        archivedAt: typeof tile.archivedAt === "number" ? tile.archivedAt : null,
+      })),
+    };
+  } else if (resolvedWorkspacePath) {
+    const now = Date.now();
+    const name =
+      workspaceName ||
+      path.basename(resolvedWorkspacePath) ||
+      "Workspace";
+    nextProject = {
+      id: randomUUID(),
+      name,
+      repoPath: resolvedWorkspacePath,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      tiles: [],
+    };
+  }
+
+  const activeProjectId = nextProject?.id ?? null;
+  const legacyProjects = normalized.projects.filter(
+    (project) => project.id !== activeProjectId
+  );
+  saveLegacyProjects(legacyProjects, normalized.activeProjectId);
+
+  return {
+    version: STORE_VERSION,
+    activeProjectId,
+    projects: nextProject ? [nextProject] : [],
+    needsWorkspace: !resolvedWorkspacePath,
+  };
+};
+
 const migrateV1Store = (store: { activeProjectId?: string | null; projects: RawProject[] }) => {
   const projects = store.projects.map((project) => ({
     ...project,
@@ -287,10 +402,7 @@ const migrateV1Store = (store: { activeProjectId?: string | null; projects: RawP
         typeof tile.sessionKey === "string" ? tile.sessionKey : ""
       ),
       role: "coding" as const,
-      workspacePath: resolveAgentWorktreeDir(
-        project.id,
-        parseAgentIdFromSessionKey(typeof tile.sessionKey === "string" ? tile.sessionKey : "")
-      ),
+      workspacePath: "",
       archivedAt: null,
     })),
   }));
@@ -313,7 +425,7 @@ const migrateV2Store = (store: RawStore): ProjectsStore => {
 export const loadStore = (): ProjectsStore => {
   ensureStoreDir();
   if (!fs.existsSync(STORE_PATH)) {
-    const seed = defaultStore();
+    const seed = applySingleWorkspace(defaultStore());
     fs.writeFileSync(STORE_PATH, JSON.stringify(seed, null, 2), "utf8");
     return seed;
   }
@@ -327,19 +439,26 @@ export const loadStore = (): ProjectsStore => {
       throw new Error(`Workspaces store is invalid at ${STORE_PATH}.`);
     }
     if (parsed.version === STORE_VERSION) {
-      return normalizeProjectsStore(parsed as ProjectsStore);
+      const normalized = normalizeProjectsStore(parsed as ProjectsStore);
+      const single = applySingleWorkspace(normalized);
+      if (JSON.stringify(single) !== JSON.stringify(normalized)) {
+        saveStore(single);
+      }
+      return single;
     }
     if (parsed.version === 2) {
       const migrated = migrateV2Store(parsed);
-      saveStore(migrated);
-      return migrated;
+      const single = applySingleWorkspace(migrated);
+      saveStore(single);
+      return single;
     }
     const migrated = migrateV1Store({
       activeProjectId: parsed.activeProjectId ?? null,
       projects: parsed.projects,
     });
-    saveStore(migrated);
-    return migrated;
+    const single = applySingleWorkspace(migrated);
+    saveStore(single);
+    return single;
   } catch (err) {
     const details = err instanceof Error ? err.message : "Unknown error.";
     if (details.includes(STORE_PATH)) {

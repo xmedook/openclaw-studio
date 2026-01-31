@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import fs from "node:fs";
 
 import { logger } from "@/lib/logger";
-import { resolveAgentWorktreeDir } from "@/lib/projects/worktrees.server";
 import {
   readWorkspaceFiles,
   writeWorkspaceFiles,
@@ -22,10 +21,19 @@ export async function GET(
     if (!resolved.ok) {
       return resolved.response;
     }
-    const { projectId: resolvedProjectId, tile } = resolved;
-    const workspaceDir = resolveAgentWorktreeDir(resolvedProjectId, tile.agentId);
+    const { tile } = resolved;
+    const workspaceDir = tile.workspacePath?.trim() ?? "";
+    if (!workspaceDir) {
+      return NextResponse.json(
+        { error: "Workspace path is not configured." },
+        { status: 400 }
+      );
+    }
     if (!fs.existsSync(workspaceDir)) {
-      return NextResponse.json({ error: "Agent workspace not found." }, { status: 404 });
+      return NextResponse.json(
+        { error: "Workspace path does not exist." },
+        { status: 404 }
+      );
     }
     const files = readWorkspaceFiles(workspaceDir);
     return NextResponse.json({ files });
@@ -45,10 +53,19 @@ export async function PUT(
     if (!resolved.ok) {
       return resolved.response;
     }
-    const { projectId: resolvedProjectId, tile } = resolved;
-    const workspaceDir = resolveAgentWorktreeDir(resolvedProjectId, tile.agentId);
+    const { tile } = resolved;
+    const workspaceDir = tile.workspacePath?.trim() ?? "";
+    if (!workspaceDir) {
+      return NextResponse.json(
+        { error: "Workspace path is not configured." },
+        { status: 400 }
+      );
+    }
     if (!fs.existsSync(workspaceDir)) {
-      return NextResponse.json({ error: "Agent workspace not found." }, { status: 404 });
+      return NextResponse.json(
+        { error: "Workspace path does not exist." },
+        { status: 404 }
+      );
     }
 
     const body = (await request.json()) as ProjectTileWorkspaceFilesUpdatePayload;

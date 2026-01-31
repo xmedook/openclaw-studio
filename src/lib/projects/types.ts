@@ -29,6 +29,7 @@ export type ProjectsStore = {
   version: 3;
   activeProjectId: string | null;
   projects: Project[];
+  needsWorkspace?: boolean;
 };
 
 export type ProjectCreateOrOpenPayload =
@@ -94,7 +95,6 @@ export type ProjectCleanupPreviewItem = {
   archivedAt: number;
   workspaceExists: boolean;
   agentStateExists: boolean;
-  worktreeDirty: boolean;
 };
 
 export type ProjectCleanupPreviewResult = {
@@ -114,6 +114,18 @@ export type ProjectTileUpdatePayload = {
   name?: string;
   avatarSeed?: string | null;
   archivedAt?: number | null;
+};
+
+export type WorkspaceSettingsUpdatePayload = {
+  workspacePath: string;
+  workspaceName?: string;
+};
+
+export type WorkspaceSettingsResult = {
+  workspacePath: string | null;
+  workspaceName: string | null;
+  defaultAgentId: string;
+  warnings: string[];
 };
 
 export type ProjectTileUpdateResult = {

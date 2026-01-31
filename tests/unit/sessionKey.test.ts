@@ -4,11 +4,11 @@ import { buildSessionKey, parseAgentIdFromSessionKey } from "@/lib/projects/sess
 
 describe("sessionKey helpers", () => {
   it("buildSessionKey formats agent session key", () => {
-    expect(buildSessionKey("agent-1")).toBe("agent:agent-1:main");
+    expect(buildSessionKey("agent-1", "tile-1")).toBe("agent:agent-1:studio:tile-1");
   });
 
   it("parseAgentIdFromSessionKey extracts agent id", () => {
-    expect(parseAgentIdFromSessionKey("agent:agent-1:main")).toBe("agent-1");
+    expect(parseAgentIdFromSessionKey("agent:agent-1:studio:tile-1")).toBe("agent-1");
   });
 
   it("parseAgentIdFromSessionKey falls back when missing", () => {

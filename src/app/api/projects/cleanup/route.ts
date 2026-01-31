@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 
 import fs from "node:fs";
-import { spawnSync } from "node:child_process";
-
 import { logger } from "@/lib/logger";
 import type {
   ProjectCleanupPreviewResult,
@@ -12,34 +10,10 @@ import type {
 import { loadStore, removeTilesFromStore, saveStore } from "@/app/api/projects/store";
 import { selectArchivedTilesForCleanup } from "@/lib/projects/cleanup";
 import { deleteDirIfExists, resolveAgentStateDir } from "@/lib/projects/fs.server";
-import { isWorktreeDirty } from "@/lib/projects/worktrees.server";
-import { removeAgentEntry, updateClawdbotConfig } from "@/lib/clawdbot/config";
+import { loadClawdbotConfig, updateClawdbotConfig } from "@/lib/clawdbot/config";
+import { resolveDefaultAgentId } from "@/lib/clawdbot/resolveDefaultAgent";
 
 export const runtime = "nodejs";
-
-const runGit = (cwd: string, args: string[]) => {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
-  if (result.status !== 0) {
-    const stderr = result.stderr?.trim();
-    throw new Error(
-      stderr ? `git ${args.join(" ")} failed in ${cwd}: ${stderr}` : "git command failed."
-    );
-  }
-  return result.stdout?.trim() ?? "";
-};
-
-const removeWorktree = (repoPath: string, worktreeDir: string, force: boolean) => {
-  if (!fs.existsSync(worktreeDir)) {
-    return { removed: false, warning: `Agent workspace not found at ${worktreeDir}.` };
-  }
-  const stat = fs.statSync(worktreeDir);
-  if (!stat.isDirectory()) {
-    throw new Error(`Agent workspace path is not a directory: ${worktreeDir}`);
-  }
-  const args = force ? ["worktree", "remove", "-f", worktreeDir] : ["worktree", "remove", worktreeDir];
-  runGit(repoPath, args);
-  return { removed: true, warning: null };
-};
 
 export async function GET() {
   try {
@@ -49,21 +23,20 @@ export async function GET() {
       if (!tile.archivedAt) {
         throw new Error(`Archived tile is missing archivedAt: ${tile.id}`);
       }
-      const workspaceExists = fs.existsSync(tile.workspacePath);
+      const workspacePath = tile.workspacePath?.trim() ?? "";
+      const workspaceExists = workspacePath ? fs.existsSync(workspacePath) : false;
       const agentStatePath = resolveAgentStateDir(tile.agentId);
       const agentStateExists = fs.existsSync(agentStatePath);
-      const worktreeDirty = workspaceExists ? isWorktreeDirty(tile.workspacePath) : false;
       return {
         projectId: project.id,
         projectName: project.name,
         tileId: tile.id,
         tileName: tile.name,
         agentId: tile.agentId,
-        workspacePath: tile.workspacePath,
+        workspacePath,
         archivedAt: tile.archivedAt,
         workspaceExists,
         agentStateExists,
-        worktreeDirty,
       };
     });
     const result: ProjectCleanupPreviewResult = { items };
@@ -96,52 +69,43 @@ export async function POST(request: Request) {
 
     const warnings: string[] = [];
     const removals: Array<{ projectId: string; tileId: string }> = [];
-    const reposTouched = new Set<string>();
     const agentIds: string[] = [];
-    const dirtyAgents: string[] = [];
-
-    for (const { project, tile } of candidates) {
-      const repoPath = project.repoPath;
-      if (!repoPath.trim()) {
-        throw new Error(`Workspace path is required for project ${project.name}.`);
-      }
-      if (!fs.existsSync(repoPath)) {
-        throw new Error(`Workspace path does not exist: ${repoPath}`);
-      }
-      const repoStat = fs.statSync(repoPath);
-      if (!repoStat.isDirectory()) {
-        throw new Error(`Workspace path is not a directory: ${repoPath}`);
-      }
-
-      reposTouched.add(repoPath);
-      const workspaceExists = fs.existsSync(tile.workspacePath);
-      const isDirty = workspaceExists ? isWorktreeDirty(tile.workspacePath) : false;
-      if (isDirty) {
-        dirtyAgents.push(tile.agentId);
-      }
-      const removal = removeWorktree(repoPath, tile.workspacePath, isDirty);
-      if (removal.warning) warnings.push(removal.warning);
-
-      deleteDirIfExists(
-        resolveAgentStateDir(tile.agentId),
-        "Agent state",
-        warnings
-      );
-
-      removals.push({ projectId: project.id, tileId: tile.id });
-      agentIds.push(tile.agentId);
+    let defaultAgentId = "main";
+    try {
+      const { config } = loadClawdbotConfig();
+      defaultAgentId = resolveDefaultAgentId(config);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to load OpenClaw config.";
+      warnings.push(message);
     }
 
-    if (dirtyAgents.length > 0) {
-      warnings.push(
-        `Archived agents removed with uncommitted changes: ${dirtyAgents.join(", ")}.`
-      );
+    for (const { project, tile } of candidates) {
+      const agentId = tile.agentId?.trim() ?? "";
+      if (agentId && agentId !== defaultAgentId) {
+        deleteDirIfExists(
+          resolveAgentStateDir(agentId),
+          "Agent state",
+          warnings
+        );
+        agentIds.push(agentId);
+      }
+      removals.push({ projectId: project.id, tileId: tile.id });
     }
 
     const { warnings: configWarnings } = updateClawdbotConfig((config) => {
       let changed = false;
       for (const agentId of agentIds) {
-        if (removeAgentEntry(config, agentId)) {
+        const agents = (config.agents ?? {}) as Record<string, unknown>;
+        const list = Array.isArray(agents.list) ? agents.list : [];
+        const next = list.filter((entry) => {
+          if (!entry || typeof entry !== "object") return false;
+          const id = (entry as Record<string, unknown>).id;
+          return id !== agentId;
+        });
+        if (next.length !== list.length) {
+          agents.list = next;
+          config.agents = agents;
           changed = true;
         }
       }
@@ -152,16 +116,6 @@ export async function POST(request: Request) {
     const now = Date.now();
     const { store: nextStore } = removeTilesFromStore(store, removals, now);
     saveStore(nextStore);
-
-    for (const repoPath of reposTouched) {
-      try {
-        runGit(repoPath, ["worktree", "prune"]);
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : `git worktree prune failed for ${repoPath}.`;
-        warnings.push(message);
-      }
-    }
 
     const result: ProjectCleanupResult = { store: nextStore, warnings };
     return NextResponse.json(result);

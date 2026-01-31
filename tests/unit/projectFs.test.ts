@@ -101,8 +101,8 @@ describe("collectAgentIdsAndDeleteArtifacts", () => {
     name: "Tile",
     agentId,
     role: "coding",
-    sessionKey: `agent:${agentId}:main`,
-    workspacePath: `/tmp/worktrees/${agentId}`,
+    sessionKey: `agent:${agentId}:studio:tile-1`,
+    workspacePath: `/tmp/workspace`,
     archivedAt: null,
     model: "openai-codex/gpt-5.2-codex",
     thinkingLevel: null,
@@ -116,15 +116,7 @@ describe("collectAgentIdsAndDeleteArtifacts", () => {
     process.env.OPENCLAW_STATE_DIR = tempDir;
     const projectId = "project-1";
     const agentId = "agent-1";
-    const workspaceDir = path.join(
-      tempDir,
-      "openclaw-studio",
-      "worktrees",
-      projectId,
-      agentId
-    );
     const stateDir = path.join(tempDir, "agents", agentId);
-    fs.mkdirSync(workspaceDir, { recursive: true });
     fs.mkdirSync(stateDir, { recursive: true });
 
     const warnings: string[] = [];
@@ -132,7 +124,6 @@ describe("collectAgentIdsAndDeleteArtifacts", () => {
 
     expect(ids).toEqual([agentId]);
     expect(warnings).toEqual([]);
-    expect(fs.existsSync(workspaceDir)).toBe(false);
     expect(fs.existsSync(stateDir)).toBe(false);
   });
 

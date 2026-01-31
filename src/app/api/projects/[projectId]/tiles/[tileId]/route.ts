@@ -2,12 +2,7 @@ import { NextResponse } from "next/server";
 
 import { logger } from "@/lib/logger";
 import type { ProjectTileUpdatePayload } from "@/lib/projects/types";
-import { resolveAgentWorktreeDir } from "@/lib/projects/worktrees.server";
 import { resolveProjectTileFromParams } from "@/lib/projects/resolve.server";
-import {
-  updateClawdbotConfig,
-  upsertAgentEntry,
-} from "@/lib/clawdbot/config";
 import {
   archiveTileInProject,
   saveStore,
@@ -76,23 +71,7 @@ export async function PATCH(
     if (!resolved.ok) {
       return resolved.response;
     }
-    const { store, projectId: resolvedProjectId, tileId: resolvedTileId, tile } = resolved;
-
-    const warnings: string[] = [];
-    if (name) {
-      const nextWorkspaceDir = resolveAgentWorktreeDir(
-        resolvedProjectId,
-        tile.agentId
-      );
-      const { warnings: configWarnings } = updateClawdbotConfig((config) =>
-        upsertAgentEntry(config, {
-          agentId: tile.agentId,
-          agentName: name,
-          workspaceDir: nextWorkspaceDir,
-        })
-      );
-      warnings.push(...configWarnings);
-    }
+    const { store, projectId: resolvedProjectId, tileId: resolvedTileId } = resolved;
 
     const now = Date.now();
     const patch = {
@@ -110,7 +89,7 @@ export async function PATCH(
       now
     );
     saveStore(nextStore);
-    return NextResponse.json({ store: nextStore, warnings });
+    return NextResponse.json({ store: nextStore, warnings: [] });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to rename tile.";
     logger.error(message);

@@ -13,5 +13,5 @@ test("loads canvas empty state", async ({ page }) => {
       });
   });
   await page.goto("/");
-  await expect(page.getByText("Create a workspace to begin.")).toBeVisible();
+  await expect(page.getByText("Set a workspace path to begin.")).toBeVisible();
 });

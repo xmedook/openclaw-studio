@@ -1,4 +1,8 @@
-export const buildSessionKey = (agentId: string) => `agent:${agentId}:main`;
+export const buildSessionKey = (agentId: string, sessionId: string) => {
+  const trimmedAgent = agentId.trim();
+  const trimmedSession = sessionId.trim();
+  return `agent:${trimmedAgent}:studio:${trimmedSession}`;
+};
 
 export const parseAgentIdFromSessionKey = (
   sessionKey: string,

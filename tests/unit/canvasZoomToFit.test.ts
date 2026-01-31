@@ -8,11 +8,13 @@ type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
 const makeTile = (id: string, position: { x: number; y: number }, size: { width: number; height: number }): AgentTile => ({
   id,
   name: `Tile ${id}`,
-  agentId: `agent-${id}`,
+  agentId: "main",
   role: "coding",
-  sessionKey: `agent:${id}:main`,
+  sessionKey: `agent:main:studio:${id}`,
   model: null,
   thinkingLevel: "low",
+  workspacePath: "/tmp/workspace",
+  archivedAt: null,
   position,
   size,
   status: "idle",
@@ -22,8 +24,12 @@ const makeTile = (id: string, position: { x: number; y: number }, size: { width:
   runId: null,
   streamText: null,
   thinkingTrace: null,
+  lastActivityAt: null,
+  latestPreview: null,
+  lastUserMessage: null,
   draft: "",
   sessionSettingsSynced: false,
+  historyLoadedAt: null,
 });
 
 const getBounds = (tiles: AgentTile[]): Bounds => {

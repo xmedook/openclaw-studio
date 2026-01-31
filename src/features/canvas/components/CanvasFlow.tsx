@@ -9,6 +9,7 @@ import {
   MiniMap,
   ReactFlowProvider,
   useNodesState,
+  BackgroundVariant,
   type Node,
   type OnMove,
 } from "@xyflow/react";
@@ -243,7 +244,7 @@ const CanvasFlowInner = ({
         color="var(--border)"
         gap={24}
         size={1}
-        variant="dots"
+        variant={BackgroundVariant.Dots}
         className="opacity-60"
       />
       <MiniMap />

@@ -27,7 +27,7 @@ This keeps feature cohesion high while preserving a clear client/server boundary
 
 ## Main modules / bounded contexts
 - **Canvas UI** (`src/features/canvas`): React Flow canvas, tiles, editor UI, local in-memory state + actions. Agent tiles render a status-first summary and latest-update preview driven by gateway events + summary snapshots (`src/features/canvas/state/summary.ts`). Full transcripts load only on explicit “Load history” actions.
-- **Projects** (`src/lib/projects`, `src/app/api/projects`): project/tile models, store persistence, shared store normalization and mutation helpers in `src/app/api/projects/store.ts`, worktree provisioning (`src/lib/projects/worktrees.server.ts`), workspace files, heartbeat settings, shared project/tile resolution plus API response helpers in `src/lib/projects/resolve.server.ts` (including param-based helpers that load the store), shared sessionKey helpers in `src/lib/projects/sessionKey.ts`, shared workspace file helpers in `src/lib/projects/workspaceFiles.ts`, server-side workspace file read/write helpers in `src/lib/projects/workspaceFiles.server.ts`, studio state-dir helper in `src/lib/projects/agentWorkspace.ts`, server-side filesystem helpers (`src/lib/projects/fs.server.ts`) for explicit cleanup operations. Workspace create/open is handled by `POST /api/projects` in `src/app/api/projects/route.ts` using name-or-path payloads, with a single client entry point in `src/lib/projects/client.ts`. Tiles store a worktree-backed `workspacePath` and support archive/restore with `archivedAt`. Archived tiles are hard-deleted via `POST /api/projects/cleanup` after previewing via `GET /api/projects/cleanup`, which removes worktrees, agent state, and agent config entries.
+- **Projects + workspace settings** (`src/lib/projects`, `src/app/api/projects`, `src/lib/studio`): project/tile models, store persistence, shared store normalization and mutation helpers in `src/app/api/projects/store.ts` (single-workspace normalization + legacy-project capture), workspace settings storage + resolution (`src/lib/studio/workspaceSettings.server.ts`, `src/app/api/workspace/route.ts`), shared project/tile resolution helpers in `src/lib/projects/resolve.server.ts`, sessionKey helpers in `src/lib/projects/sessionKey.ts`, workspace file helpers (`src/lib/projects/workspaceFiles.ts`, `src/lib/projects/workspaceFiles.server.ts`), studio state-dir helper in `src/lib/projects/agentWorkspace.ts`, server-side filesystem helpers (`src/lib/projects/fs.server.ts`) for cleanup operations. Tiles store a shared `workspacePath`, use a single default agent id, and rely on session keys for separation. Archived tiles are hard-deleted via `POST /api/projects/cleanup` after previewing via `GET /api/projects/cleanup`, which removes non-default agent state.
 - **Gateway** (`src/lib/gateway`): WebSocket client for agent runtime (frames, connect, request/response). The OpenClaw control UI client is vendored in `src/lib/gateway/openclaw/GatewayBrowserClient.ts` with a sync script at `scripts/sync-openclaw-gateway-client.ts`.
 - **OpenClaw config + paths** (`src/lib/clawdbot`): read/write openclaw.json (with legacy fallback), shared agent list helpers (used by heartbeat routes), shared config update helper for routes, heartbeat defaults, consolidated state/config/.env path resolution with `OPENCLAW_*` env overrides (`src/lib/clawdbot/paths.ts`).
 - **Discord integration** (`src/lib/discord`, API route): channel provisioning and config binding.
@@ -44,14 +44,14 @@ This keeps feature cohesion high while preserving a clear client/server boundary
 
 ## Data flow & key boundaries
 ### 1) Project + tile state
-- **Source of truth**: JSON store on disk at `~/.openclaw/openclaw-studio/projects.json` (legacy fallback to `~/.moltbot` or `~/.clawdbot`).
+- **Source of truth**: JSON store on disk at `~/.openclaw/openclaw-studio/projects.json` with workspace settings in `~/.openclaw/openclaw-studio/settings.json` (legacy fallback to `~/.moltbot` or `~/.clawdbot`).
 - **Server boundary**: `src/app/api/projects/*` handles validation, persistence, and side effects.
 - **Client boundary**: `AgentCanvasProvider` loads store on startup, caches in memory, and persists via API.
 
 Flow:
 1. UI dispatches action.
 2. Client calls `lib/projects/client`.
-3. API route mutates store + writes files/config; workspace create/open both use `POST /api/projects`. Tile creation provisions a per-agent git worktree and writes workspace files inside that worktree. Archive operations set `archivedAt` without deleting files.
+3. API routes mutate store + write files/config; workspace path is configured via `PUT /api/workspace`. Tile creation uses the shared workspace path and provisions workspace files in that directory. Archive operations set `archivedAt` without deleting files.
 4. API returns updated store.
 5. Client hydrates store into runtime state.
 
@@ -72,7 +72,7 @@ Flow:
 
 Flow:
 1. UI requests workspace files/heartbeat via API.
-2. API reads/writes filesystem + config. Workspace files live inside each agent’s worktree and are ignored via `.git/info/exclude`.
+2. API reads/writes filesystem + config. Workspace files live inside the shared workspace path.
 3. UI reflects persisted state.
 
 ### 4) Discord provisioning
@@ -86,8 +86,8 @@ Flow:
 - **Error handling**:
   - API routes return JSON `{ error }` with appropriate status.
   - `fetchJson` throws when `!res.ok`, surfaces errors to UI state.
-- **Filesystem helpers**: `src/lib/projects/worktrees.server.ts` provisions per-agent worktrees; `src/lib/projects/fs.server.ts` handles explicit cleanup operations; state/config path expansion lives in `src/lib/clawdbot/paths.ts`.
-- **Projects store normalization**: `src/app/api/projects/store.ts` provides `normalizeProjectsStore` to keep active project selection consistent and to backfill `workspacePath` + `archivedAt`.
+- **Filesystem helpers**: `src/lib/projects/workspaceFiles.server.ts` reads/writes workspace files; `src/lib/projects/fs.server.ts` handles cleanup operations; state/config path expansion lives in `src/lib/clawdbot/paths.ts`.
+- **Projects store normalization**: `src/app/api/projects/store.ts` keeps active project selection consistent, enforces a single workspace, and backfills `workspacePath` + `archivedAt`.
 - **Tracing**: `src/instrumentation.ts` registers `@vercel/otel` for telemetry.
 - **Validation**: request payload validation in API routes; shared project/tile resolution in `src/lib/projects/resolve.server.ts`; typed payloads in `lib/projects/types`.
 
@@ -97,9 +97,9 @@ Flow:
 - **Vendored gateway client + sync script**: reduces drift from upstream OpenClaw UI; trade-off is maintaining a sync path and local copies of upstream helpers.
 - **Feature-first organization**: increases cohesion in UI; trade-off is more discipline to keep shared logic in `lib`.
 - **Node runtime for API routes**: required for filesystem access; trade-off is Node-only server runtime.
-- **Per-agent worktrees**: isolates agent file edits and git state; trade-off is additional worktree management and disk usage.
+- **Single workspace + session-only tiles**: all tiles share one workspace path while sessions remain isolated via session keys; trade-off is less filesystem isolation between tiles.
 - **Event-driven summaries + on-demand history**: keeps the dashboard lightweight; trade-off is history not being available until requested.
-- **Archive-first deletes**: preserves local state and worktrees by default; trade-off is explicit cleanup as a separate operation, now handled by `GET/POST /api/projects/cleanup`.
+- **Archive-first deletes**: preserves local state by default; trade-off is explicit cleanup as a separate operation, handled by `GET/POST /api/projects/cleanup`.
 
 ## Mermaid diagrams
 ### C4 Level 1 (System Context)
