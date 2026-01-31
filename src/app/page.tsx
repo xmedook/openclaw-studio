@@ -14,6 +14,7 @@ import {
   formatThinkingMarkdown,
   isTraceMarkdown,
 } from "@/lib/text/extractThinking";
+import { extractToolLines } from "@/lib/text/extractTools";
 import { isHeartbeatPrompt, isUiMetadataPrefix, stripUiMetadata } from "@/lib/text/uiMetadata";
 import { useGatewayConnection } from "@/lib/gateway/useGatewayConnection";
 import type { EventFrame } from "@/lib/gateway/frames";
@@ -33,12 +34,16 @@ import {
   createProjectDiscordChannel,
   fetchProjectCleanupPreview,
   runProjectCleanup,
+  fetchCronJobs,
 } from "@/lib/projects/client";
 import { createRandomAgentName, normalizeAgentName } from "@/lib/names/agentNames";
 import { buildAgentInstruction } from "@/lib/projects/message";
 import { filterArchivedItems } from "@/lib/projects/archive";
 import type { AgentTile, ProjectRuntime } from "@/features/canvas/state/store";
+import type { CronJobSummary } from "@/lib/projects/types";
 import { logger } from "@/lib/logger";
+import { parseAgentIdFromSessionKey } from "@/lib/projects/sessionKey";
+import { buildAvatarDataUrl } from "@/lib/avatars/multiavatar";
 // (CANVAS_BASE_ZOOM import removed)
 
 type ChatHistoryMessage = Record<string, unknown>;
@@ -77,6 +82,17 @@ type SessionsPreviewResult = {
   previews: SessionsPreviewEntry[];
 };
 
+type SessionsListEntry = {
+  key: string;
+  updatedAt?: number | null;
+  displayName?: string;
+  origin?: { label?: string | null; provider?: string | null } | null;
+};
+
+type SessionsListResult = {
+  sessions?: SessionsListEntry[];
+};
+
 type SessionStatusSummary = {
   key: string;
   updatedAt: number | null;
@@ -87,6 +103,49 @@ type StatusSummary = {
     recent?: SessionStatusSummary[];
     byAgent?: Array<{ agentId: string; recent: SessionStatusSummary[] }>;
   };
+};
+
+const SPECIAL_UPDATE_HEARTBEAT_RE = /\bheartbeat\b/i;
+const SPECIAL_UPDATE_CRON_RE = /\bcron\b/i;
+
+const resolveSpecialUpdateKind = (message: string) => {
+  const lowered = message.toLowerCase();
+  const heartbeatIndex = lowered.search(SPECIAL_UPDATE_HEARTBEAT_RE);
+  const cronIndex = lowered.search(SPECIAL_UPDATE_CRON_RE);
+  if (heartbeatIndex === -1 && cronIndex === -1) return null;
+  if (heartbeatIndex === -1) return "cron";
+  if (cronIndex === -1) return "heartbeat";
+  return cronIndex > heartbeatIndex ? "cron" : "heartbeat";
+};
+
+const formatEveryMs = (everyMs: number) => {
+  if (everyMs % 3600000 === 0) {
+    return `${everyMs / 3600000}h`;
+  }
+  if (everyMs % 60000 === 0) {
+    return `${everyMs / 60000}m`;
+  }
+  if (everyMs % 1000 === 0) {
+    return `${everyMs / 1000}s`;
+  }
+  return `${everyMs}ms`;
+};
+
+const formatCronSchedule = (schedule: CronJobSummary["schedule"]) => {
+  if (schedule.kind === "every") {
+    return `Every ${formatEveryMs(schedule.everyMs)}`;
+  }
+  if (schedule.kind === "cron") {
+    return schedule.tz ? `Cron: ${schedule.expr} (${schedule.tz})` : `Cron: ${schedule.expr}`;
+  }
+  return `At: ${new Date(schedule.atMs).toLocaleString()}`;
+};
+
+const buildCronDisplay = (job: CronJobSummary) => {
+  const payloadText =
+    job.payload.kind === "systemEvent" ? job.payload.text : job.payload.message;
+  const lines = [job.name, formatCronSchedule(job.schedule), payloadText].filter(Boolean);
+  return lines.join("\n");
 };
 
 const buildHistoryLines = (messages: ChatHistoryMessage[]) => {
@@ -100,7 +159,8 @@ const buildHistoryLines = (messages: ChatHistoryMessage[]) => {
     const text = stripUiMetadata(extracted?.trim() ?? "");
     const thinking =
       role === "assistant" ? formatThinkingMarkdown(extractThinking(message) ?? "") : "";
-    if (!text && !thinking) continue;
+    const toolLines = extractToolLines(message);
+    if (!text && !thinking && toolLines.length === 0) continue;
     if (role === "user") {
       if (text && isHeartbeatPrompt(text)) {
         continue;
@@ -114,11 +174,18 @@ const buildHistoryLines = (messages: ChatHistoryMessage[]) => {
       if (thinking) {
         lines.push(thinking);
       }
+      if (toolLines.length > 0) {
+        lines.push(...toolLines);
+      }
       if (text) {
         lines.push(text);
         lastAssistant = text;
       }
       lastRole = "assistant";
+    } else if (toolLines.length > 0) {
+      lines.push(...toolLines);
+    } else if (text) {
+      lines.push(text);
     }
   }
   const deduped: string[] = [];
@@ -127,6 +194,26 @@ const buildHistoryLines = (messages: ChatHistoryMessage[]) => {
     deduped.push(line);
   }
   return { lines: deduped, lastAssistant, lastRole, lastUser };
+};
+
+const findLatestHeartbeatResponse = (messages: ChatHistoryMessage[]) => {
+  let awaitingHeartbeatReply = false;
+  let latestResponse: string | null = null;
+  for (const message of messages) {
+    const role = typeof message.role === "string" ? message.role : "";
+    if (role === "user") {
+      const text = stripUiMetadata(extractText(message) ?? "").trim();
+      awaitingHeartbeatReply = isHeartbeatPrompt(text);
+      continue;
+    }
+    if (role === "assistant" && awaitingHeartbeatReply) {
+      const text = stripUiMetadata(extractText(message) ?? "").trim();
+      if (text) {
+        latestResponse = text;
+      }
+    }
+  }
+  return latestResponse;
 };
 
 const mergeHistoryWithPending = (historyLines: string[], currentLines: string[]) => {
@@ -194,6 +281,7 @@ const AgentCanvasPage = () => {
   const activeProject = getActiveProject(state);
   const [showWorkspaceSettings, setShowWorkspaceSettings] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [heartbeatTick, setHeartbeatTick] = useState(0);
   const historyInFlightRef = useRef<Set<string>>(new Set());
   const stateRef = useRef(state);
   const summaryRefreshRef = useRef<number | null>(null);
@@ -205,6 +293,9 @@ const AgentCanvasPage = () => {
   const [inspectTileId, setInspectTileId] = useState<string | null>(null);
   const [headerOffset, setHeaderOffset] = useState(0);
   const thinkingDebugRef = useRef<Set<string>>(new Set());
+  const chatRunSeenRef = useRef<Set<string>>(new Set());
+  const specialUpdateRef = useRef<Map<string, string>>(new Map());
+  const specialUpdateInFlightRef = useRef<Set<string>>(new Set());
   // flowInstance removed (zoom controls live in the bottom-right ReactFlow Controls).
 
   const visibleProjects = useMemo(
@@ -225,6 +316,15 @@ const AgentCanvasPage = () => {
     () => filterArchivedItems(project?.tiles ?? [], showArchived),
     [project?.tiles, showArchived]
   );
+  const faviconSeed = useMemo(() => {
+    const firstTile = project?.tiles[0];
+    const seed = firstTile?.avatarSeed ?? firstTile?.agentId ?? "";
+    return seed.trim() || null;
+  }, [project?.tiles]);
+  const faviconHref = useMemo(
+    () => (faviconSeed ? buildAvatarDataUrl(faviconSeed) : null),
+    [faviconSeed]
+  );
   const workspacePath = project?.repoPath?.trim() ?? "";
   const needsWorkspace = state.needsWorkspace || !workspacePath;
   const inspectTile = useMemo(() => {
@@ -232,6 +332,27 @@ const AgentCanvasPage = () => {
     return project.tiles.find((entry) => entry.id === inspectTileId) ?? null;
   }, [inspectTileId, project]);
   const errorMessage = state.error ?? gatewayModelsError;
+
+  useEffect(() => {
+    const selector = 'link[data-agent-favicon="true"]';
+    const existing = document.querySelector(selector) as HTMLLinkElement | null;
+    if (!faviconHref) {
+      existing?.remove();
+      return;
+    }
+    if (existing) {
+      if (existing.href !== faviconHref) {
+        existing.href = faviconHref;
+      }
+      return;
+    }
+    const link = document.createElement("link");
+    link.rel = "icon";
+    link.type = "image/svg+xml";
+    link.href = faviconHref;
+    link.setAttribute("data-agent-favicon", "true");
+    document.head.appendChild(link);
+  }, [faviconHref]);
 
   const resolveConfiguredModelKey = useCallback(
     (raw: string, models?: Record<string, { alias?: string }>) => {
@@ -313,6 +434,107 @@ const AgentCanvasPage = () => {
     }
     return summary;
   }, []);
+
+  const resolveCronJobForTile = useCallback((jobs: CronJobSummary[], tile: AgentTile) => {
+    if (!jobs.length) return null;
+    const agentId = tile.agentId?.trim();
+    const filtered = agentId ? jobs.filter((job) => job.agentId === agentId) : jobs;
+    const active = filtered.length > 0 ? filtered : jobs;
+    return [...active].sort((a, b) => b.updatedAtMs - a.updatedAtMs)[0] ?? null;
+  }, []);
+
+  const updateSpecialLatestUpdate = useCallback(
+    async (projectId: string, tile: AgentTile, message: string) => {
+      const key = `${projectId}:${tile.id}`;
+      const kind = resolveSpecialUpdateKind(message);
+      if (!kind) {
+        if (tile.latestOverride || tile.latestOverrideKind) {
+          dispatch({
+            type: "updateTile",
+            projectId,
+            tileId: tile.id,
+            patch: { latestOverride: null, latestOverrideKind: null },
+          });
+        }
+        return;
+      }
+      if (specialUpdateInFlightRef.current.has(key)) return;
+      specialUpdateInFlightRef.current.add(key);
+      try {
+        if (kind === "heartbeat") {
+          const agentId = tile.agentId?.trim() || parseAgentIdFromSessionKey(tile.sessionKey);
+          if (!agentId) {
+            dispatch({
+              type: "updateTile",
+              projectId,
+              tileId: tile.id,
+              patch: { latestOverride: null, latestOverrideKind: null },
+            });
+            return;
+          }
+          const sessions = await client.call<SessionsListResult>("sessions.list", {
+            agentId,
+            includeGlobal: false,
+            includeUnknown: false,
+            limit: 48,
+          });
+          const entries = Array.isArray(sessions.sessions) ? sessions.sessions : [];
+          const heartbeatSessions = entries.filter((entry) => {
+            const label = entry.origin?.label;
+            return typeof label === "string" && label.toLowerCase() === "heartbeat";
+          });
+          const candidates = heartbeatSessions.length > 0 ? heartbeatSessions : entries;
+          const sorted = [...candidates].sort(
+            (a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)
+          );
+          const sessionKey = sorted[0]?.key;
+          if (!sessionKey) {
+            dispatch({
+              type: "updateTile",
+              projectId,
+              tileId: tile.id,
+              patch: { latestOverride: null, latestOverrideKind: null },
+            });
+            return;
+          }
+          const history = await client.call<ChatHistoryResult>("chat.history", {
+            sessionKey,
+            limit: 200,
+          });
+          const content = findLatestHeartbeatResponse(history.messages ?? []) ?? "";
+          dispatch({
+            type: "updateTile",
+            projectId,
+            tileId: tile.id,
+            patch: {
+              latestOverride: content || null,
+              latestOverrideKind: content ? "heartbeat" : null,
+            },
+          });
+          return;
+        }
+        const cronResult = await fetchCronJobs();
+        const job = resolveCronJobForTile(cronResult.jobs, tile);
+        const content = job ? buildCronDisplay(job) : "";
+        dispatch({
+          type: "updateTile",
+          projectId,
+          tileId: tile.id,
+          patch: {
+            latestOverride: content || null,
+            latestOverrideKind: content ? "cron" : null,
+          },
+        });
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to load latest cron/heartbeat update.";
+        logger.error(message);
+      } finally {
+        specialUpdateInFlightRef.current.delete(key);
+      }
+    },
+    [client, dispatch, resolveCronJobForTile]
+  );
 
   const computeNewTilePosition = useCallback(
     (tileSize: { width: number; height: number }) => {
@@ -586,6 +808,9 @@ const AgentCanvasPage = () => {
     if (status !== "connected") return;
     const unsubscribe = client.onEvent((event: EventFrame) => {
       if (event.event !== "presence" && event.event !== "heartbeat") return;
+      if (event.event === "heartbeat") {
+        setHeartbeatTick((prev) => prev + 1);
+      }
       if (summaryRefreshRef.current !== null) {
         window.clearTimeout(summaryRefreshRef.current);
       }
@@ -631,6 +856,21 @@ const AgentCanvasPage = () => {
     if (tiles.some((tile) => tile.id === state.selectedTileId)) return;
     dispatch({ type: "selectTile", tileId: null });
   }, [dispatch, state.selectedTileId, tiles]);
+
+  useEffect(() => {
+    for (const project of state.projects) {
+      for (const tile of project.tiles) {
+        const lastMessage = tile.lastUserMessage?.trim() ?? "";
+        const kind = resolveSpecialUpdateKind(lastMessage);
+        const key = `${project.id}:${tile.id}`;
+        const marker = kind === "heartbeat" ? `${lastMessage}:${heartbeatTick}` : lastMessage;
+        const previous = specialUpdateRef.current.get(key);
+        if (previous === marker) continue;
+        specialUpdateRef.current.set(key, marker);
+        void updateSpecialLatestUpdate(project.id, tile, lastMessage);
+      }
+    }
+  }, [heartbeatTick, state.projects, updateSpecialLatestUpdate]);
 
   const handleNewAgent = useCallback(async () => {
     if (!project || project.archivedAt) return;
@@ -926,6 +1166,9 @@ const AgentCanvasPage = () => {
       if (event.event !== "chat") return;
       const payload = event.payload as ChatEventPayload | undefined;
       if (!payload?.sessionKey) return;
+      if (payload.runId) {
+        chatRunSeenRef.current.add(payload.runId);
+      }
       const match = findTileBySessionKey(state.projects, payload.sessionKey);
       if (!match) return;
 
@@ -950,6 +1193,8 @@ const AgentCanvasPage = () => {
       const nextTextRaw = extractText(payload.message);
       const nextText = nextTextRaw ? stripUiMetadata(nextTextRaw) : null;
       const nextThinking = extractThinking(payload.message ?? payload);
+      const toolLines = extractToolLines(payload.message ?? payload);
+      const isToolRole = role === "tool" || role === "toolResult";
       if (payload.state === "delta") {
         if (typeof nextTextRaw === "string" && isUiMetadataPrefix(nextTextRaw.trim())) {
           return;
@@ -980,6 +1225,9 @@ const AgentCanvasPage = () => {
       }
 
       if (payload.state === "final") {
+        if (payload.runId) {
+          chatRunSeenRef.current.delete(payload.runId);
+        }
         if (
           !nextThinking &&
           role === "assistant" &&
@@ -1001,6 +1249,16 @@ const AgentCanvasPage = () => {
             line: thinkingLine,
           });
         }
+        if (toolLines.length > 0) {
+          for (const line of toolLines) {
+            dispatch({
+              type: "appendOutput",
+              projectId: match.projectId,
+              tileId: match.tileId,
+              line,
+            });
+          }
+        }
         if (
           !thinkingLine &&
           role === "assistant" &&
@@ -1009,7 +1267,7 @@ const AgentCanvasPage = () => {
         ) {
           void loadTileHistory(match.projectId, match.tileId);
         }
-        if (typeof nextText === "string") {
+        if (!isToolRole && typeof nextText === "string") {
           dispatch({
             type: "appendOutput",
             projectId: match.projectId,
@@ -1020,8 +1278,11 @@ const AgentCanvasPage = () => {
             type: "updateTile",
             projectId: match.projectId,
             tileId: match.tileId,
-          patch: { lastResult: nextText },
+            patch: { lastResult: nextText },
           });
+        }
+        if (tile?.lastUserMessage && !tile.latestOverride) {
+          void updateSpecialLatestUpdate(match.projectId, tile, tile.lastUserMessage);
         }
         dispatch({
           type: "updateTile",
@@ -1033,6 +1294,9 @@ const AgentCanvasPage = () => {
       }
 
       if (payload.state === "aborted") {
+        if (payload.runId) {
+          chatRunSeenRef.current.delete(payload.runId);
+        }
         dispatch({
           type: "appendOutput",
           projectId: match.projectId,
@@ -1049,6 +1313,9 @@ const AgentCanvasPage = () => {
       }
 
       if (payload.state === "error") {
+        if (payload.runId) {
+          chatRunSeenRef.current.delete(payload.runId);
+        }
         dispatch({
           type: "appendOutput",
           projectId: match.projectId,
@@ -1063,15 +1330,20 @@ const AgentCanvasPage = () => {
         });
       }
     });
-  }, [client, dispatch, loadTileHistory, state.projects, summarizeThinkingMessage]);
+  }, [
+    client,
+    dispatch,
+    loadTileHistory,
+    state.projects,
+    summarizeThinkingMessage,
+    updateSpecialLatestUpdate,
+  ]);
 
   useEffect(() => {
     return client.onEvent((event: EventFrame) => {
       if (event.event !== "agent") return;
       const payload = event.payload as AgentEventPayload | undefined;
       if (!payload?.runId) return;
-      const summaryPatch = getAgentSummaryPatch(payload);
-      if (!summaryPatch) return;
       const directMatch = payload.sessionKey
         ? findTileBySessionKey(state.projects, payload.sessionKey)
         : null;
@@ -1080,18 +1352,108 @@ const AgentCanvasPage = () => {
       const project = state.projects.find((entry) => entry.id === match.projectId);
       const tile = project?.tiles.find((entry) => entry.id === match.tileId);
       if (!tile) return;
-      const phase = typeof payload.data?.phase === "string" ? payload.data.phase : "";
+      const stream = typeof payload.stream === "string" ? payload.stream : "";
+      const data =
+        payload.data && typeof payload.data === "object"
+          ? (payload.data as Record<string, unknown>)
+          : null;
+      const hasChatEvents = chatRunSeenRef.current.has(payload.runId);
+      if (stream === "assistant" && !hasChatEvents) {
+        const rawText = typeof data?.text === "string" ? data.text : "";
+        const rawDelta = typeof data?.delta === "string" ? data.delta : "";
+        const nextRaw = rawText || rawDelta;
+        if (!nextRaw) return;
+        if (isUiMetadataPrefix(nextRaw.trim())) return;
+        const cleaned = stripUiMetadata(nextRaw);
+        if (!cleaned) return;
+        dispatch({
+          type: "setStream",
+          projectId: match.projectId,
+          tileId: match.tileId,
+          value: cleaned,
+        });
+        dispatch({
+          type: "updateTile",
+          projectId: match.projectId,
+          tileId: match.tileId,
+          patch: { status: "running", runId: payload.runId, lastActivityAt: Date.now() },
+        });
+        return;
+      }
+      if (stream === "tool" && !hasChatEvents) {
+        const phase = typeof data?.phase === "string" ? data.phase : "";
+        if (phase !== "result") return;
+        const name = typeof data?.name === "string" ? data.name : "tool";
+        const toolCallId = typeof data?.toolCallId === "string" ? data.toolCallId : "";
+        const result = data?.result;
+        const isError = typeof data?.isError === "boolean" ? data.isError : undefined;
+        const resultRecord =
+          result && typeof result === "object" ? (result as Record<string, unknown>) : null;
+        const details =
+          resultRecord && "details" in resultRecord ? resultRecord.details : undefined;
+        let content: unknown = result;
+        if (resultRecord) {
+          if (Array.isArray(resultRecord.content)) {
+            content = resultRecord.content;
+          } else if (typeof resultRecord.text === "string") {
+            content = resultRecord.text;
+          }
+        }
+        const message = {
+          role: "tool",
+          toolName: name,
+          toolCallId,
+          isError,
+          details,
+          content,
+        };
+        for (const line of extractToolLines(message)) {
+          dispatch({
+            type: "appendOutput",
+            projectId: match.projectId,
+            tileId: match.tileId,
+            line,
+          });
+        }
+        return;
+      }
+      if (stream !== "lifecycle") return;
+      const summaryPatch = getAgentSummaryPatch(payload);
+      if (!summaryPatch) return;
+      const phase = typeof data?.phase === "string" ? data.phase : "";
       if (phase === "start") {
         dispatch({
           type: "updateTile",
           projectId: match.projectId,
           tileId: match.tileId,
-          patch: { status: "running", runId: payload.runId, lastActivityAt: summaryPatch.lastActivityAt ?? null },
+          patch: {
+            status: "running",
+            runId: payload.runId,
+            lastActivityAt: summaryPatch.lastActivityAt ?? null,
+          },
         });
         return;
       }
       if (phase === "end") {
         if (tile.runId && tile.runId !== payload.runId) return;
+        if (!hasChatEvents) {
+          const finalText = tile.streamText?.trim();
+          if (finalText) {
+            dispatch({
+              type: "appendOutput",
+              projectId: match.projectId,
+              tileId: match.tileId,
+              line: finalText,
+            });
+            dispatch({
+              type: "updateTile",
+              projectId: match.projectId,
+              tileId: match.tileId,
+              patch: { lastResult: finalText },
+            });
+          }
+        }
+        chatRunSeenRef.current.delete(payload.runId);
         dispatch({
           type: "updateTile",
           projectId: match.projectId,
@@ -1108,6 +1470,7 @@ const AgentCanvasPage = () => {
       }
       if (phase === "error") {
         if (tile.runId && tile.runId !== payload.runId) return;
+        chatRunSeenRef.current.delete(payload.runId);
         dispatch({
           type: "updateTile",
           projectId: match.projectId,

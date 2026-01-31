@@ -39,6 +39,8 @@ export type AgentTile = ProjectTile & {
   runId: string | null;
   streamText: string | null;
   thinkingTrace: string | null;
+  latestOverride: string | null;
+  latestOverrideKind: "heartbeat" | "cron" | null;
   lastActivityAt: number | null;
   latestPreview: string | null;
   lastUserMessage: string | null;
@@ -118,6 +120,8 @@ const createRuntimeTile = (tile: ProjectTile): AgentTile => ({
   runId: null,
   streamText: null,
   thinkingTrace: null,
+  latestOverride: null,
+  latestOverrideKind: null,
   lastActivityAt: null,
   latestPreview: null,
   lastUserMessage: null,

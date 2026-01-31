@@ -2,6 +2,7 @@ import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentTile as AgentTileType, TileSize } from "@/features/canvas/state/store";
 import { isTraceMarkdown } from "@/lib/text/extractThinking";
+import { isToolMarkdown } from "@/lib/text/extractTools";
 import { extractSummaryText } from "@/lib/text/summary";
 import { normalizeAgentName } from "@/lib/names/agentNames";
 import { Shuffle } from "lucide-react";
@@ -227,6 +228,7 @@ export const AgentTile = ({
       const trimmed = line.trim();
       if (!trimmed) continue;
       if (isTraceMarkdown(trimmed)) continue;
+      if (isToolMarkdown(trimmed)) continue;
       if (trimmed.startsWith(">")) continue;
       return trimmed;
     }
@@ -238,6 +240,7 @@ export const AgentTile = ({
     latestUpdate === "No updates yet."
       ? latestUpdate
       : extractSummaryText(latestUpdate);
+  const latestDisplay = tile.latestOverride ?? latestSummary;
 
   const avatarSeed = tile.avatarSeed ?? tile.agentId;
   const resizeHandleClass = isSelected
@@ -319,7 +322,9 @@ export const AgentTile = ({
               {statusLabel}
             </span>
           </div>
-          <div className="mt-2 text-xs text-foreground">{latestSummary}</div>
+          <div className="mt-2 text-xs text-foreground whitespace-pre-wrap">
+            {latestDisplay}
+          </div>
         </div>
         <div className="mt-2 flex items-end gap-2">
           <div className="relative">

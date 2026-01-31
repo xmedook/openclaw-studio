@@ -202,7 +202,7 @@ textarea:focus::-webkit-scrollbar {
 .canvas-surface {
   background: var(--background);
   border: none;
-  border-radius: 0;
+  border-radius: var(--radius-lg);
   box-shadow: none;
   overscroll-behavior: none;
   touch-action: none;
@@ -309,8 +309,15 @@ textarea:focus::-webkit-scrollbar {
   top: var(--header-offset, 0px);
   height: calc(100% - var(--header-offset, 0px));
   width: min(92vw, 420px);
-  background: var(--card);
-  border-right: 1px solid var(--border);
+  background: linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--sidebar) 92%, transparent) 0%,
+      var(--sidebar) 45%,
+      color-mix(in oklch, var(--sidebar-accent) 35%, var(--sidebar)) 100%
+    );
+  color: var(--sidebar-foreground);
+  border: 1px solid var(--sidebar-border);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   overflow-y: auto;
   pointer-events: auto;

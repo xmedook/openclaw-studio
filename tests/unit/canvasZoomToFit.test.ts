@@ -24,6 +24,8 @@ const makeTile = (id: string, position: { x: number; y: number }, size: { width:
   runId: null,
   streamText: null,
   thinkingTrace: null,
+  latestOverride: null,
+  latestOverrideKind: null,
   lastActivityAt: null,
   latestPreview: null,
   lastUserMessage: null,

@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentTile } from "@/features/canvas/state/store";
 import { isTraceMarkdown, stripTraceMarkdown } from "@/lib/text/extractThinking";
+import { isToolMarkdown, parseToolMarkdown } from "@/lib/text/extractTools";
 import type { GatewayModelChoice } from "@/lib/gateway/models";
 import {
   fetchProjectTileHeartbeat,
@@ -314,13 +315,13 @@ export const AgentInspectPanel = ({
   const allowThinking = selectedModel?.reasoning !== false;
 
   const activityBlocks = useMemo(() => {
-    type ActivityBlock = { user?: string; traces: string[]; assistant: string[] };
+    type ActivityBlock = { user?: string; traces: string[]; tools: string[]; assistant: string[] };
     const blocks: ActivityBlock[] = [];
     let current: ActivityBlock | null = null;
     let traceBuffer: string[] = [];
     const ensureBlock = () => {
       if (!current) {
-        current = { traces: [], assistant: [] };
+        current = { traces: [], tools: [], assistant: [] };
         blocks.push(current);
       }
       return current;
@@ -337,11 +338,17 @@ export const AgentInspectPanel = ({
         traceBuffer.push(stripTraceMarkdown(line));
         continue;
       }
+      if (isToolMarkdown(line)) {
+        flushTrace();
+        const block = ensureBlock();
+        block.tools.push(line);
+        continue;
+      }
       flushTrace();
       const trimmed = line.trim();
       if (trimmed.startsWith(">")) {
         const user = trimmed.replace(/^>\s?/, "").trim();
-        current = { user: user || undefined, traces: [], assistant: [] };
+        current = { user: user || undefined, traces: [], tools: [], assistant: [] };
         blocks.push(current);
         continue;
       }
@@ -434,6 +441,35 @@ export const AgentInspectPanel = ({
                         ))}
                       </div>
                     ) : null}
+                    {block.tools.length > 0 ? (
+                      <div className="mt-2 flex flex-col gap-2">
+                        {block.tools.map((tool, toolIndex) => {
+                          const parsed = parseToolMarkdown(tool);
+                          const summaryLabel =
+                            parsed.kind === "result" ? "Tool result" : "Tool call";
+                          const summaryText = parsed.label
+                            ? `${summaryLabel}: ${parsed.label}`
+                            : summaryLabel;
+                          return (
+                            <details
+                              key={`${tile.id}-tool-${index}-${toolIndex}`}
+                              className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground"
+                            >
+                              <summary className="cursor-pointer select-none font-semibold">
+                                {summaryText}
+                              </summary>
+                              {parsed.body ? (
+                                <div className="agent-markdown mt-1 text-foreground">
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {parsed.body}
+                                  </ReactMarkdown>
+                                </div>
+                              ) : null}
+                            </details>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                     {block.assistant.length > 0 ? (
                       <div className="mt-2 flex flex-col gap-2 text-foreground">
                         {block.assistant.map((line, lineIndex) => (
@@ -498,10 +534,10 @@ export const AgentInspectPanel = ({
                 <button
                   key={name}
                   type="button"
-                  className={`rounded-t-lg border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide transition ${
+                  className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition ${
                     active
-                      ? "border-border bg-card text-foreground shadow-sm"
-                      : "border-transparent bg-muted text-muted-foreground hover:bg-card"
+                      ? "border-border bg-background text-foreground shadow-sm"
+                      : "border-transparent bg-muted/60 text-muted-foreground hover:bg-muted"
                   }`}
                   onClick={() => handleWorkspaceTabChange(name)}
                 >

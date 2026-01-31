@@ -19,6 +19,7 @@ import type {
   ProjectTileWorkspaceFilesResult,
   ProjectTileWorkspaceFilesUpdatePayload,
   ProjectsStore,
+  CronJobsResult,
   WorkspaceSettingsResult,
   WorkspaceSettingsUpdatePayload,
 } from "./types";
@@ -169,6 +170,10 @@ export const fetchProjectTileHeartbeat = async (
     `/api/projects/${projectId}/tiles/${tileId}/heartbeat`,
     { cache: "no-store" }
   );
+};
+
+export const fetchCronJobs = async (): Promise<CronJobsResult> => {
+  return fetchJson<CronJobsResult>("/api/cron", { cache: "no-store" });
 };
 
 export const updateProjectTileHeartbeat = async (
