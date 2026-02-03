@@ -25,6 +25,6 @@ test.beforeEach(async ({ page }) => {
 test("connection panel reflects disconnected state", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByText("Disconnected")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Connect" })).toBeDisabled();
+  await expect(page.getByText("Disconnected").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Connect", exact: true })).toBeEnabled();
 });

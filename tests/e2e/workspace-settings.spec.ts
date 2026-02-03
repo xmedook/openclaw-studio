@@ -1,8 +1,6 @@
 import { expect, test } from "@playwright/test";
 
 test("connection settings persist to the studio settings API", async ({ page }) => {
-  let lastPayload: Record<string, unknown> | null = null;
-
   await page.route("**/api/studio", async (route, request) => {
     if (request.method() === "GET") {
       await route.fulfill({
@@ -13,11 +11,13 @@ test("connection settings persist to the studio settings API", async ({ page }) 
       return;
     }
     if (request.method() === "PUT") {
-      lastPayload = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
+      const payload = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ settings: { version: 1, gateway: lastPayload.gateway, layouts: {} } }),
+        body: JSON.stringify({
+          settings: { version: 1, gateway: payload.gateway ?? null, layouts: {}, focused: {} },
+        }),
       });
       return;
     }
@@ -29,14 +29,18 @@ test("connection settings persist to the studio settings API", async ({ page }) 
   await page.getByLabel("Gateway URL").fill("ws://gateway.example:18789");
   await page.getByLabel("Token").fill("token-123");
 
-  await page.waitForRequest((req) => req.url().includes("/api/studio") && req.method() === "PUT");
+  const request = await page.waitForRequest((req) => {
+    if (!req.url().includes("/api/studio") || req.method() !== "PUT") {
+      return false;
+    }
+    const payload = JSON.parse(req.postData() ?? "{}") as Record<string, unknown>;
+    const gateway = (payload.gateway ?? {}) as { url?: string; token?: string };
+    return gateway.url === "ws://gateway.example:18789" && gateway.token === "token-123";
+  });
 
-  expect(lastPayload).not.toBeNull();
-  if (!lastPayload) {
-    throw new Error("Expected settings payload to be captured.");
-  }
-  const gateway = (lastPayload["gateway"] ?? {}) as { url?: string; token?: string };
+  const payload = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
+  const gateway = (payload.gateway ?? {}) as { url?: string; token?: string };
   expect(gateway.url).toBe("ws://gateway.example:18789");
   expect(gateway.token).toBe("token-123");
-  await expect(page.getByRole("button", { name: "Connect" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Connect", exact: true })).toBeEnabled();
 });

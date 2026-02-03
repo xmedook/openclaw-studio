@@ -54,7 +54,11 @@ import {
 } from "@/lib/gateway/sessionKeys";
 import { buildAvatarDataUrl } from "@/lib/avatars/multiavatar";
 import { fetchStudioSettings, updateStudioSettings } from "@/lib/studio/client";
-import { resolveGatewayLayout, type StudioAgentLayout } from "@/lib/studio/settings";
+import {
+  resolveFocusedPreference,
+  resolveGatewayLayout,
+  type StudioAgentLayout,
+} from "@/lib/studio/settings";
 import { BrushCleaning } from "lucide-react";
 import { generateUUID } from "@/lib/gateway/openclaw/uuid";
 // (CANVAS_BASE_ZOOM import removed)
@@ -410,6 +414,7 @@ const AgentCanvasPage = () => {
   const [showConnectionPanel, setShowConnectionPanel] = useState(false);
   const [viewMode, setViewMode] = useState<"focused" | "canvas">("focused");
   const [focusFilter, setFocusFilter] = useState<FocusFilter>("all");
+  const [focusedPreferencesLoaded, setFocusedPreferencesLoaded] = useState(false);
   const [heartbeatTick, setHeartbeatTick] = useState(0);
   const historyInFlightRef = useRef<Set<string>>(new Set());
   const stateRef = useRef(state);
@@ -430,6 +435,7 @@ const AgentCanvasPage = () => {
   const specialUpdateInFlightRef = useRef<Set<string>>(new Set());
   const toolLinesSeenRef = useRef<Map<string, Set<string>>>(new Map());
   const assistantStreamByRunRef = useRef<Map<string, string>>(new Map());
+  const focusedSaveTimerRef = useRef<number | null>(null);
   // flowInstance removed (zoom controls live in the bottom-right ReactFlow Controls).
 
   const agents = state.agents;
@@ -877,6 +883,86 @@ const AgentCanvasPage = () => {
   useEffect(() => {
     headerOffsetRef.current = headerOffset;
   }, [headerOffset]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const key = gatewayUrl.trim();
+    if (!key) {
+      setFocusedPreferencesLoaded(true);
+      return;
+    }
+    setFocusedPreferencesLoaded(false);
+    const loadFocusedPreferences = async () => {
+      try {
+        const settingsResult = await fetchStudioSettings();
+        if (
+          cancelled ||
+          !settingsResult.settings
+        ) {
+          return;
+        }
+        const preference = resolveFocusedPreference(settingsResult.settings, key);
+        if (preference) {
+          setViewMode(preference.mode);
+          setFocusFilter(preference.filter);
+          dispatch({
+            type: "selectAgent",
+            agentId: preference.selectedAgentId,
+          });
+          return;
+        }
+        setViewMode("focused");
+        setFocusFilter("all");
+      } catch (err) {
+        logger.error("Failed to load focused preference.", err);
+      } finally {
+        if (!cancelled) {
+          setFocusedPreferencesLoaded(true);
+        }
+      }
+    };
+    void loadFocusedPreferences();
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, gatewayUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (focusedSaveTimerRef.current !== null) {
+        window.clearTimeout(focusedSaveTimerRef.current);
+        focusedSaveTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const key = gatewayUrl.trim();
+    if (!focusedPreferencesLoaded || !key) return;
+    if (focusedSaveTimerRef.current !== null) {
+      window.clearTimeout(focusedSaveTimerRef.current);
+    }
+    focusedSaveTimerRef.current = window.setTimeout(() => {
+      focusedSaveTimerRef.current = null;
+      void updateStudioSettings({
+        focused: {
+          [key]: {
+            mode: viewMode,
+            filter: focusFilter,
+            selectedAgentId: stateRef.current.selectedAgentId,
+          },
+        },
+      }).catch((err) => {
+        logger.error("Failed to save focused preference.", err);
+      });
+    }, 300);
+    return () => {
+      if (focusedSaveTimerRef.current !== null) {
+        window.clearTimeout(focusedSaveTimerRef.current);
+        focusedSaveTimerRef.current = null;
+      }
+    };
+  }, [focusFilter, focusedPreferencesLoaded, gatewayUrl, viewMode, state.selectedAgentId]);
 
   useEffect(() => {
     if (status !== "connected") return;

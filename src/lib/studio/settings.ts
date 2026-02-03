@@ -237,3 +237,12 @@ export const resolveGatewayLayout = (
   if (!key) return null;
   return settings.layouts[key] ?? null;
 };
+
+export const resolveFocusedPreference = (
+  settings: StudioSettings,
+  gatewayUrl: string
+): StudioFocusedPreference | null => {
+  const key = normalizeGatewayKey(gatewayUrl);
+  if (!key) return null;
+  return settings.focused[key] ?? null;
+};

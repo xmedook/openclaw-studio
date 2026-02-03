@@ -157,4 +157,46 @@ describe("agent canvas store", () => {
       "agent-1",
     ]);
   });
+
+  it("clears_unseen_indicator_on_focus", () => {
+    const seeds: AgentSeed[] = [
+      {
+        agentId: "agent-1",
+        name: "Agent One",
+        sessionKey: "agent:agent-1:main",
+        position: { x: 0, y: 0 },
+        size: { width: 320, height: 320 },
+      },
+      {
+        agentId: "agent-2",
+        name: "Agent Two",
+        sessionKey: "agent:agent-2:main",
+        position: { x: 320, y: 0 },
+        size: { width: 320, height: 320 },
+      },
+    ];
+    let state = agentCanvasReducer(initialAgentCanvasState, {
+      type: "hydrateAgents",
+      agents: seeds,
+    });
+    state = agentCanvasReducer(state, {
+      type: "markActivity",
+      agentId: "agent-2",
+      at: 1700000000100,
+    });
+
+    const before = state.agents.find((agent) => agent.agentId === "agent-2");
+    expect(before?.hasUnseenActivity).toBe(true);
+    expect(getAttentionForAgent(before!, state.selectedAgentId)).toBe(
+      "needs-attention"
+    );
+
+    state = agentCanvasReducer(state, {
+      type: "selectAgent",
+      agentId: "agent-2",
+    });
+    const after = state.agents.find((agent) => agent.agentId === "agent-2");
+    expect(after?.hasUnseenActivity).toBe(false);
+    expect(getAttentionForAgent(after!, state.selectedAgentId)).toBe("normal");
+  });
 });

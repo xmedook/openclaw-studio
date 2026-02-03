@@ -25,6 +25,6 @@ test.beforeEach(async ({ page }) => {
 test("empty canvas shows zero agents when disconnected", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByText("Agents (0)")).toBeVisible();
+  await expect(page.getByText("Agents (0)").first()).toBeVisible();
   await expect(page.locator("[data-tile]")).toHaveCount(0);
 });
