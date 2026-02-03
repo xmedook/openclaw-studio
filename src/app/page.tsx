@@ -2120,7 +2120,7 @@ const AgentCanvasPage = () => {
           </div>
         ) : null}
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
           <FleetSidebar
             agents={filteredAgents}
             selectedAgentId={focusedAgent?.agentId ?? state.selectedAgentId}

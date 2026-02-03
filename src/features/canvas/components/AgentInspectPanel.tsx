@@ -371,7 +371,11 @@ export const AgentInspectPanel = ({
   const allowThinking = selectedModel?.reasoning !== false;
 
   return (
-    <div className="agent-inspect-panel" data-testid="agent-inspect-panel">
+    <div
+      className="agent-inspect-panel"
+      data-testid="agent-inspect-panel"
+      style={{ position: "relative", left: "auto", top: "auto", width: "100%", height: "100%" }}
+    >
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div>
           <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -529,7 +533,7 @@ export const AgentInspectPanel = ({
 
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <label className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold uppercase text-muted-foreground">
-              <span>Enable tool calling</span>
+              <span>Show tool calls</span>
               <input
                 type="checkbox"
                 className="h-4 w-4 rounded border-input text-foreground"

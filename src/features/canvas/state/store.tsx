@@ -124,7 +124,7 @@ const createRuntimeAgent = (seed: AgentSeed, existing?: AgentTile | null): Agent
     draft: existing?.draft ?? "",
     sessionSettingsSynced: existing?.sessionSettingsSynced ?? false,
     historyLoadedAt: existing?.historyLoadedAt ?? null,
-    toolCallingEnabled: seed.toolCallingEnabled ?? existing?.toolCallingEnabled ?? true,
+    toolCallingEnabled: seed.toolCallingEnabled ?? existing?.toolCallingEnabled ?? false,
     showThinkingTraces: seed.showThinkingTraces ?? existing?.showThinkingTraces ?? true,
   };
 };

@@ -28,6 +28,24 @@ type AgentTileProps = {
   onResizeEnd?: (size: TileSize) => void;
 };
 
+const normalizeAssistantDisplayText = (value: string): string => {
+  const lines = value.replace(/\r\n?/g, "\n").split("\n");
+  const normalized: string[] = [];
+  let lastWasBlank = false;
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/[ \t]+$/g, "");
+    if (line.trim().length === 0) {
+      if (lastWasBlank) continue;
+      normalized.push("");
+      lastWasBlank = true;
+      continue;
+    }
+    normalized.push(line);
+    lastWasBlank = false;
+  }
+  return normalized.join("\n").trim();
+};
+
 export const AgentTile = ({
   tile,
   isSelected,
@@ -239,19 +257,17 @@ export const AgentTile = ({
         ? "Error"
         : "Waiting for direction";
 
+  const liveThinkingTrace = tile.thinkingTrace?.trim() ?? "";
+
   const chatItems = useMemo(() => {
     const items: Array<
       | { kind: "user"; text: string }
       | { kind: "assistant"; text: string; live?: boolean }
-      | { kind: "trace"; text: string; live?: boolean }
       | { kind: "tool"; text: string }
     > = [];
     for (const line of tile.outputLines) {
       if (!line) continue;
       if (isTraceMarkdown(line)) {
-        if (!tile.showThinkingTraces) continue;
-        const text = stripTraceMarkdown(line).trim();
-        if (text) items.push({ kind: "trace", text });
         continue;
       }
       if (isToolMarkdown(line)) {
@@ -265,24 +281,53 @@ export const AgentTile = ({
         if (text) items.push({ kind: "user", text });
         continue;
       }
-      items.push({ kind: "assistant", text: line });
-    }
-    const liveThinking = tile.thinkingTrace?.trim();
-    if (tile.showThinkingTraces && liveThinking) {
-      items.push({ kind: "trace", text: liveThinking, live: true });
+      const normalizedAssistant = normalizeAssistantDisplayText(line);
+      if (!normalizedAssistant) continue;
+      items.push({ kind: "assistant", text: normalizedAssistant });
     }
     const liveStream = tile.streamText?.trim();
     if (liveStream) {
-      items.push({ kind: "assistant", text: liveStream, live: true });
+      const normalizedStream = normalizeAssistantDisplayText(liveStream);
+      if (normalizedStream) {
+        items.push({ kind: "assistant", text: normalizedStream, live: true });
+      }
     }
     return items;
   }, [
     tile.outputLines,
-    tile.showThinkingTraces,
     tile.streamText,
-    tile.thinkingTrace,
     tile.toolCallingEnabled,
   ]);
+
+  const thinkingTraceSections = useMemo(() => {
+    if (!tile.showThinkingTraces) return [];
+    const sections: string[] = [];
+    for (const line of tile.outputLines) {
+      if (!isTraceMarkdown(line)) continue;
+      const text = stripTraceMarkdown(line).trim();
+      if (!text) continue;
+      if (sections[sections.length - 1] === text) continue;
+      sections.push(text);
+    }
+    if (liveThinkingTrace && sections[sections.length - 1] !== liveThinkingTrace) {
+      sections.push(liveThinkingTrace);
+    }
+    return sections;
+  }, [liveThinkingTrace, tile.outputLines, tile.showThinkingTraces]);
+
+  const thinkingTraceContent = useMemo(
+    () => thinkingTraceSections.join("\n\n"),
+    [thinkingTraceSections]
+  );
+  const thinkingInsertIndex = useMemo(() => {
+    if (!thinkingTraceContent) return -1;
+    for (let index = chatItems.length - 1; index >= 0; index -= 1) {
+      if (chatItems[index]?.kind === "assistant") {
+        return index;
+      }
+    }
+    return chatItems.length;
+  }, [chatItems, thinkingTraceContent]);
 
   const avatarSeed = tile.avatarSeed ?? tile.agentId;
   const resizeHandleClass = isSelected
@@ -387,78 +432,132 @@ export const AgentTile = ({
           }}
         >
           <div className="flex flex-col gap-3 text-xs text-foreground">
-            {chatItems.length === 0 ? (
+            {chatItems.length === 0 && thinkingTraceSections.length === 0 ? (
               <div className="text-xs text-muted-foreground">No messages yet.</div>
             ) : (
-              chatItems.map((item, index) => {
-                if (item.kind === "user") {
+              <>
+                {chatItems.map((item, index) => {
+                  const showThinkingBefore = index === thinkingInsertIndex;
+                  if (item.kind === "user") {
+                    return (
+                      <div key={`chat-${tile.agentId}-user-wrap-${index}`} className="contents">
+                        {showThinkingBefore ? (
+                          <details
+                            className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground"
+                            open={tile.status === "running" && Boolean(liveThinkingTrace)}
+                          >
+                            <summary className="cursor-pointer select-none font-semibold">
+                              Thinking traces
+                            </summary>
+                            <div className="agent-markdown mt-1 text-foreground">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {thinkingTraceContent}
+                              </ReactMarkdown>
+                            </div>
+                          </details>
+                        ) : null}
+                        <div
+                          key={`chat-${tile.agentId}-user-${index}`}
+                          className="rounded-md bg-muted/70 px-3 py-2 text-foreground"
+                        >
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {`> ${item.text}`}
+                          </ReactMarkdown>
+                        </div>
+                      </div>
+                    );
+                  }
+                  if (item.kind === "tool") {
+                    const parsed = parseToolMarkdown(item.text);
+                    const summaryLabel =
+                      parsed.kind === "result" ? "Tool result" : "Tool call";
+                    const summaryText = parsed.label
+                      ? `${summaryLabel}: ${parsed.label}`
+                      : summaryLabel;
+                    return (
+                      <div key={`chat-${tile.agentId}-tool-wrap-${index}`} className="contents">
+                        {showThinkingBefore ? (
+                          <details
+                            className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground"
+                            open={tile.status === "running" && Boolean(liveThinkingTrace)}
+                          >
+                            <summary className="cursor-pointer select-none font-semibold">
+                              Thinking traces
+                            </summary>
+                            <div className="agent-markdown mt-1 text-foreground">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {thinkingTraceContent}
+                              </ReactMarkdown>
+                            </div>
+                          </details>
+                        ) : null}
+                        <details
+                          key={`chat-${tile.agentId}-tool-${index}`}
+                          className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground"
+                        >
+                          <summary className="cursor-pointer select-none font-semibold">
+                            {summaryText}
+                          </summary>
+                          {parsed.body ? (
+                            <div className="agent-markdown mt-1 text-foreground">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {parsed.body}
+                              </ReactMarkdown>
+                            </div>
+                          ) : null}
+                        </details>
+                      </div>
+                    );
+                  }
                   return (
                     <div
-                      key={`chat-${tile.agentId}-user-${index}`}
-                      className="rounded-md bg-muted/70 px-3 py-2 text-foreground"
+                      key={`chat-${tile.agentId}-assistant-wrap-${index}`}
+                      className="contents"
                     >
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {`> ${item.text}`}
-                      </ReactMarkdown>
-                    </div>
-                  );
-                }
-                if (item.kind === "trace") {
-                  return (
-                    <details
-                      key={`chat-${tile.agentId}-trace-${index}`}
-                      className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground"
-                      open={Boolean(item.live)}
-                    >
-                      <summary className="cursor-pointer select-none font-semibold">
-                        Thinking trace
-                      </summary>
-                      <div className="agent-markdown mt-1 text-foreground">
+                      {showThinkingBefore ? (
+                        <details
+                          className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground"
+                          open={tile.status === "running" && Boolean(liveThinkingTrace)}
+                        >
+                          <summary className="cursor-pointer select-none font-semibold">
+                            Thinking traces
+                          </summary>
+                          <div className="agent-markdown mt-1 text-foreground">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {thinkingTraceContent}
+                            </ReactMarkdown>
+                          </div>
+                        </details>
+                      ) : null}
+                      <div
+                        key={`chat-${tile.agentId}-assistant-${index}`}
+                        className={`agent-markdown ${
+                          item.live ? "opacity-80" : ""
+                        }`}
+                      >
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
                           {item.text}
                         </ReactMarkdown>
                       </div>
-                    </details>
+                    </div>
                   );
-                }
-                if (item.kind === "tool") {
-                  const parsed = parseToolMarkdown(item.text);
-                  const summaryLabel =
-                    parsed.kind === "result" ? "Tool result" : "Tool call";
-                  const summaryText = parsed.label
-                    ? `${summaryLabel}: ${parsed.label}`
-                    : summaryLabel;
-                  return (
-                    <details
-                      key={`chat-${tile.agentId}-tool-${index}`}
-                      className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground"
-                    >
-                      <summary className="cursor-pointer select-none font-semibold">
-                        {summaryText}
-                      </summary>
-                      {parsed.body ? (
-                        <div className="agent-markdown mt-1 text-foreground">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {parsed.body}
-                          </ReactMarkdown>
-                        </div>
-                      ) : null}
-                    </details>
-                  );
-                }
-                return (
-                  <div
-                    key={`chat-${tile.agentId}-assistant-${index}`}
-                    className={`agent-markdown ${
-                      item.live ? "opacity-80" : ""
-                    }`}
+                })}
+                {thinkingTraceContent && thinkingInsertIndex === chatItems.length ? (
+                  <details
+                    className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground"
+                    open={tile.status === "running" && Boolean(liveThinkingTrace)}
                   >
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {item.text}
-                    </ReactMarkdown>
-                  </div>
-                );
-              })
+                    <summary className="cursor-pointer select-none font-semibold">
+                      Thinking traces
+                    </summary>
+                    <div className="agent-markdown mt-1 text-foreground">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {thinkingTraceContent}
+                      </ReactMarkdown>
+                    </div>
+                  </details>
+                ) : null}
+              </>
             )}
           </div>
         </div>
