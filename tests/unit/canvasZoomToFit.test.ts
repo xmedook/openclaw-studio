@@ -20,6 +20,8 @@ const makeTile = (
   model: null,
   thinkingLevel: "low",
   status: "idle",
+  awaitingUserInput: false,
+  hasUnseenActivity: false,
   outputLines: [],
   lastResult: null,
   lastDiff: null,

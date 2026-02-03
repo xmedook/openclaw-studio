@@ -32,7 +32,10 @@ test("connection settings persist to the studio settings API", async ({ page }) 
   await page.waitForRequest((req) => req.url().includes("/api/studio") && req.method() === "PUT");
 
   expect(lastPayload).not.toBeNull();
-  const gateway = (lastPayload?.gateway ?? {}) as { url?: string; token?: string };
+  if (!lastPayload) {
+    throw new Error("Expected settings payload to be captured.");
+  }
+  const gateway = (lastPayload["gateway"] ?? {}) as { url?: string; token?: string };
   expect(gateway.url).toBe("ws://gateway.example:18789");
   expect(gateway.token).toBe("token-123");
   await expect(page.getByRole("button", { name: "Connect" })).toBeEnabled();

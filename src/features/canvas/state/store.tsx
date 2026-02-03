@@ -13,6 +13,8 @@ import { CANVAS_BASE_ZOOM } from "@/lib/canvasDefaults";
 import { MAX_TILE_HEIGHT, MIN_TILE_SIZE } from "@/lib/canvasTileDefaults";
 
 export type AgentStatus = "idle" | "running" | "error";
+export type FocusFilter = "all" | "needs-attention" | "running" | "idle";
+export type AgentAttention = "normal" | "needs-attention";
 
 export type TilePosition = { x: number; y: number };
 export type TileSize = { width: number; height: number };
@@ -33,6 +35,8 @@ export type AgentSeed = {
 
 export type AgentTile = AgentSeed & {
   status: AgentStatus;
+  awaitingUserInput: boolean;
+  hasUnseenActivity: boolean;
   outputLines: string[];
   lastResult: string | null;
   lastDiff: string | null;
@@ -72,6 +76,7 @@ type Action =
   | { type: "updateAgent"; agentId: string; patch: Partial<AgentTile> }
   | { type: "appendOutput"; agentId: string; line: string }
   | { type: "setStream"; agentId: string; value: string | null }
+  | { type: "markActivity"; agentId: string; at?: number }
   | { type: "selectAgent"; agentId: string | null }
   | { type: "setCanvas"; patch: Partial<CanvasTransform> };
 
@@ -103,6 +108,8 @@ const createRuntimeAgent = (seed: AgentSeed, existing?: AgentTile | null): Agent
     model: seed.model ?? existing?.model ?? null,
     thinkingLevel: seed.thinkingLevel ?? existing?.thinkingLevel ?? "medium",
     status: existing?.status ?? "idle",
+    awaitingUserInput: existing?.awaitingUserInput ?? false,
+    hasUnseenActivity: existing?.hasUnseenActivity ?? false,
     outputLines: existing?.outputLines ?? [],
     lastResult: existing?.lastResult ?? null,
     lastDiff: existing?.lastDiff ?? null,
@@ -176,8 +183,34 @@ const reducer = (state: CanvasState, action: Action): CanvasState => {
             : agent
         ),
       };
+    case "markActivity": {
+      const at = action.at ?? Date.now();
+      return {
+        ...state,
+        agents: state.agents.map((agent) => {
+          if (agent.agentId !== action.agentId) return agent;
+          const isSelected = state.selectedAgentId === action.agentId;
+          return {
+            ...agent,
+            lastActivityAt: at,
+            hasUnseenActivity: isSelected ? false : true,
+          };
+        }),
+      };
+    }
     case "selectAgent":
-      return { ...state, selectedAgentId: action.agentId };
+      return {
+        ...state,
+        selectedAgentId: action.agentId,
+        agents:
+          action.agentId === null
+            ? state.agents
+            : state.agents.map((agent) =>
+                agent.agentId === action.agentId
+                  ? { ...agent, hasUnseenActivity: false }
+                  : agent
+              ),
+      };
     case "setCanvas":
       return { ...state, canvas: { ...state.canvas, ...action.patch } };
     default:
@@ -239,4 +272,29 @@ export const useAgentCanvasStore = () => {
 export const getSelectedAgent = (state: CanvasState): AgentTile | null => {
   if (!state.selectedAgentId) return null;
   return state.agents.find((agent) => agent.agentId === state.selectedAgentId) ?? null;
+};
+
+export const getAttentionForAgent = (
+  agent: AgentTile,
+  selectedAgentId: string | null
+): AgentAttention => {
+  if (agent.status === "error") return "needs-attention";
+  if (agent.awaitingUserInput) return "needs-attention";
+  if (selectedAgentId !== agent.agentId && agent.hasUnseenActivity) {
+    return "needs-attention";
+  }
+  return "normal";
+};
+
+export const getFilteredAgents = (state: CanvasState, filter: FocusFilter): AgentTile[] => {
+  if (filter === "all") return state.agents;
+  if (filter === "running") {
+    return state.agents.filter((agent) => agent.status === "running");
+  }
+  if (filter === "idle") {
+    return state.agents.filter((agent) => agent.status === "idle");
+  }
+  return state.agents.filter(
+    (agent) => getAttentionForAgent(agent, state.selectedAgentId) === "needs-attention"
+  );
 };

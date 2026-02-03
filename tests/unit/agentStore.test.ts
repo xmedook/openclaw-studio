@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   agentCanvasReducer,
+  getAttentionForAgent,
+  getFilteredAgents,
   initialAgentCanvasState,
   type AgentSeed,
 } from "@/features/canvas/state/store";
@@ -48,5 +50,111 @@ describe("agent canvas store", () => {
     });
     expect(next.agents[0].size.width).toBeGreaterThanOrEqual(MIN_TILE_SIZE.width);
     expect(next.agents[0].size.height).toBeGreaterThanOrEqual(MIN_TILE_SIZE.height);
+  });
+
+  it("tracks_unseen_activity_for_non_selected_agents", () => {
+    const seeds: AgentSeed[] = [
+      {
+        agentId: "agent-1",
+        name: "Agent One",
+        sessionKey: "agent:agent-1:main",
+        position: { x: 0, y: 0 },
+        size: { width: 320, height: 320 },
+      },
+      {
+        agentId: "agent-2",
+        name: "Agent Two",
+        sessionKey: "agent:agent-2:main",
+        position: { x: 340, y: 0 },
+        size: { width: 320, height: 320 },
+      },
+    ];
+    const hydrated = agentCanvasReducer(initialAgentCanvasState, {
+      type: "hydrateAgents",
+      agents: seeds,
+    });
+    const withActivity = agentCanvasReducer(hydrated, {
+      type: "markActivity",
+      agentId: "agent-2",
+      at: 1700000000000,
+    });
+    const second = withActivity.agents.find((agent) => agent.agentId === "agent-2");
+    expect(second?.hasUnseenActivity).toBe(true);
+    expect(second?.lastActivityAt).toBe(1700000000000);
+    expect(getAttentionForAgent(second!, withActivity.selectedAgentId)).toBe(
+      "needs-attention"
+    );
+
+    const selected = agentCanvasReducer(withActivity, {
+      type: "selectAgent",
+      agentId: "agent-2",
+    });
+    const cleared = selected.agents.find((agent) => agent.agentId === "agent-2");
+    expect(cleared?.hasUnseenActivity).toBe(false);
+  });
+
+  it("filters_agents_by_attention_and_status", () => {
+    const seeds: AgentSeed[] = [
+      {
+        agentId: "agent-1",
+        name: "Agent One",
+        sessionKey: "agent:agent-1:main",
+        position: { x: 0, y: 0 },
+        size: { width: 320, height: 320 },
+      },
+      {
+        agentId: "agent-2",
+        name: "Agent Two",
+        sessionKey: "agent:agent-2:main",
+        position: { x: 340, y: 0 },
+        size: { width: 320, height: 320 },
+      },
+      {
+        agentId: "agent-3",
+        name: "Agent Three",
+        sessionKey: "agent:agent-3:main",
+        position: { x: 680, y: 0 },
+        size: { width: 320, height: 320 },
+      },
+    ];
+    let state = agentCanvasReducer(initialAgentCanvasState, {
+      type: "hydrateAgents",
+      agents: seeds,
+    });
+    state = agentCanvasReducer(state, {
+      type: "updateAgent",
+      agentId: "agent-1",
+      patch: { awaitingUserInput: true },
+    });
+    state = agentCanvasReducer(state, {
+      type: "updateAgent",
+      agentId: "agent-2",
+      patch: { status: "running" },
+    });
+    state = agentCanvasReducer(state, {
+      type: "updateAgent",
+      agentId: "agent-3",
+      patch: { status: "error" },
+    });
+    state = agentCanvasReducer(state, {
+      type: "markActivity",
+      agentId: "agent-2",
+      at: 1700000000001,
+    });
+
+    expect(getFilteredAgents(state, "all").map((agent) => agent.agentId)).toEqual([
+      "agent-1",
+      "agent-2",
+      "agent-3",
+    ]);
+    expect(
+      getFilteredAgents(state, "needs-attention").map((agent) => agent.agentId)
+    ).toEqual(["agent-1", "agent-2", "agent-3"]);
+    expect(getFilteredAgents(state, "running").map((agent) => agent.agentId)).toEqual([
+      "agent-2",
+    ]);
+    expect(getFilteredAgents(state, "idle").map((agent) => agent.agentId)).toEqual([
+      "agent-1",
+    ]);
   });
 });
