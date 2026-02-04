@@ -28,10 +28,10 @@ Non-goals:
 This keeps feature cohesion high while preserving a clear client/server boundary.
 
 ## Main modules / bounded contexts
-- **Focused agent UI** (`src/features/agents`): focused agent panel, fleet sidebar, inspect panel, and local in-memory state + actions. Agents render a status-first summary and latest-update preview driven by gateway events. Gateway event classification (`presence`/`heartbeat` summary refresh and `chat`/`agent` runtime streams) is centralized in bridge helpers (`src/features/agents/state/runtimeEventBridge.ts`) and consumed from one gateway subscription path in `src/app/page.tsx`. Full transcripts load only on explicit “Load history” actions.
+- **Focused agent UI** (`src/features/agents`): focused agent panel, fleet sidebar, inspect panel, and local in-memory state + actions. Agents render a status-first summary and latest-update preview driven by gateway events. Gateway event classification (`presence`/`heartbeat` summary refresh and `chat`/`agent` runtime streams) is centralized in bridge helpers (`src/features/agents/state/runtimeEventBridge.ts`) and consumed from one gateway subscription path in `src/app/page.tsx`. Session setting mutations (model/thinking) are centralized in `src/features/agents/state/sessionSettingsMutations.ts` so optimistic state updates and sync/error behavior stay aligned. Full transcripts load only on explicit “Load history” actions.
 - **Studio settings** (`src/lib/studio`, `src/app/api/studio`): local settings store for gateway URL/token and focused preferences (`src/lib/studio/settings.ts`, `src/lib/studio/settings.server.ts`, `src/app/api/studio/route.ts`). `src/lib/studio/coordinator.ts` now owns both the `/api/studio` transport helpers and shared client-side load/patch scheduling for gateway, focused, and studio-session settings.
-- **Gateway** (`src/lib/gateway`): WebSocket client for agent runtime (frames, connect, request/response). The OpenClaw control UI client is vendored in `src/lib/gateway/openclaw/GatewayBrowserClient.ts` with a sync script at `scripts/sync-openclaw-gateway-client.ts`.
-- **Gateway-backed config + agent-file edits** (`src/lib/gateway/agentConfig.ts`, `src/lib/gateway/tools.ts`, `src/app/api/gateway/tools/route.ts`): agent rename/heartbeat via `config.get` + `config.patch`, agent file read/write via `/tools/invoke` proxy.
+- **Gateway** (`src/lib/gateway`): WebSocket client for agent runtime (frames, connect, request/response). Session settings sync transport (`sessions.patch`) is centralized in `src/lib/gateway/sessionSettings.ts`. The OpenClaw control UI client is vendored in `src/lib/gateway/openclaw/GatewayBrowserClient.ts` with a sync script at `scripts/sync-openclaw-gateway-client.ts`.
+- **Gateway-backed config + agent-file edits** (`src/lib/gateway/agentConfig.ts`, `src/app/api/gateway/tools/route.ts`): agent rename/heartbeat via `config.get` + `config.patch`, agent file read/write via `/tools/invoke` proxy.
 - **Local OpenClaw config + paths** (`src/lib/clawdbot`): state/config/.env path resolution with `OPENCLAW_*` env overrides (`src/lib/clawdbot/paths.ts`). Local config access is used for optional Discord provisioning and local path/config helpers; shared local config list helpers live in `src/lib/clawdbot/config.ts` and are reused by Discord provisioning. Gateway URL/token in Studio are sourced from studio settings.
 - **Shared agent config-list helpers** (`src/lib/agents/configList.ts`): pure `agents.list` read/write/upsert helpers reused by both gateway config patching (`src/lib/gateway/agentConfig.ts`) and local config access (`src/lib/clawdbot/config.ts`) to keep list-shape semantics aligned.
 - **Discord integration** (`src/lib/discord`, API route): channel provisioning and config binding (local gateway only).
@@ -84,6 +84,11 @@ Flow:
 - **Cron**: `GET /api/cron` reads `~/.openclaw/cron/jobs.json` (local state dir) to display scheduled jobs.
 - **Discord**: API route calls `createDiscordChannelForAgent`, uses `DISCORD_BOT_TOKEN` from the resolved state-dir `.env`, and updates local `openclaw.json` bindings.
 
+### 5) Session settings synchronization
+- **UI boundary**: `AgentSettingsPanel` emits model/thinking callbacks; `src/app/page.tsx` delegates both through one mutation helper.
+- **Mutation boundary**: `applySessionSettingMutation` in `src/features/agents/state/sessionSettingsMutations.ts` owns optimistic store updates, `sessionCreated` guard logic, sync success updates, and user-facing failure lines.
+- **Transport boundary**: `syncGatewaySessionSettings` in `src/lib/gateway/sessionSettings.ts` is the only client-side builder/invoker for `sessions.patch` payloads.
+
 ## Cross-cutting concerns
 - **Configuration**: `src/lib/env` validates env via zod; `lib/clawdbot/paths.ts` resolves config path and state dirs, honoring `OPENCLAW_STATE_DIR`/`OPENCLAW_CONFIG_PATH` and legacy fallbacks. Studio settings live under `<state dir>/openclaw-studio/settings.json`.
 - **Logging**: `src/lib/logger` (console wrappers) used in API routes and gateway client.
@@ -110,6 +115,7 @@ Flow:
 - **Event-driven summaries + on-demand history**: keeps the dashboard lightweight; trade-off is history not being available until requested.
 - **Single runtime event bridge for chat+agent streams**: one listener path in `src/app/page.tsx` now routes runtime frames through pure bridge helpers (`src/features/agents/state/runtimeEventBridge.ts`), including summary patch extraction that previously lived in a separate module; trade-off is a denser bridge contract, but lower divergence risk across lifecycle cleanup/state transitions.
 - **Single gateway event intake subscription**: one `client.onEvent` path now handles both summary-refresh events (`presence`/`heartbeat`) and runtime stream events (`chat`/`agent`) using bridge classification helpers; trade-off is a larger callback surface, but fewer lifecycle and cleanup divergence points.
+- **Shared session-setting mutation path**: model and thinking-level updates now pass through one UI mutation helper plus one gateway sync helper (`src/features/agents/state/sessionSettingsMutations.ts` + `src/lib/gateway/sessionSettings.ts`), reducing divergence between optimistic state and remote patch flows.
 
 ## Mermaid diagrams
 ### C4 Level 1 (System Context)

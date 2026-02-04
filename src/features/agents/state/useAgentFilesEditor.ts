@@ -5,9 +5,21 @@ import {
   isAgentFileName,
   type AgentFileName,
 } from "@/lib/agents/agentFiles";
-import { invokeGatewayTool } from "@/lib/gateway/tools";
+import { fetchJson } from "@/lib/http";
 
 type AgentFilesState = ReturnType<typeof createAgentFilesState>;
+
+type GatewayToolInvokePayload = {
+  tool: string;
+  sessionKey?: string;
+  action?: string;
+  args?: Record<string, unknown>;
+  dryRun?: boolean;
+};
+
+type GatewayToolInvokeResult =
+  | { ok: true; result: unknown }
+  | { ok: false; error: string };
 
 type UseAgentFilesEditorResult = {
   agentFiles: AgentFilesState;
@@ -40,6 +52,25 @@ const extractToolText = (result: unknown) => {
 
 const isMissingFileError = (message: string) => /no such file|enoent/i.test(message);
 
+const callAgentTool = async (
+  payload: GatewayToolInvokePayload
+): Promise<GatewayToolInvokeResult> => {
+  try {
+    const data = await fetchJson<unknown>("/api/gateway/tools", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!data || typeof data !== "object" || !("ok" in data)) {
+      return { ok: false, error: "Invalid gateway tool response." };
+    }
+    return data as GatewayToolInvokeResult;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to invoke gateway tool.";
+    return { ok: false, error: message };
+  }
+};
+
 export const useAgentFilesEditor = (sessionKey: string | null | undefined): UseAgentFilesEditorResult => {
   const [agentFiles, setAgentFiles] = useState(createAgentFilesState);
   const [agentFileTab, setAgentFileTab] = useState<AgentFileName>(AGENT_FILE_NAMES[0]);
@@ -61,7 +92,7 @@ export const useAgentFilesEditor = (sessionKey: string | null | undefined): UseA
       }
       const results = await Promise.all(
         AGENT_FILE_NAMES.map(async (name) => {
-          const response = await invokeGatewayTool({
+          const response = await callAgentTool({
             tool: "read",
             sessionKey: trimmedSessionKey,
             args: { path: name },
@@ -108,7 +139,7 @@ export const useAgentFilesEditor = (sessionKey: string | null | undefined): UseA
       }
       await Promise.all(
         AGENT_FILE_NAMES.map(async (name) => {
-          const response = await invokeGatewayTool({
+          const response = await callAgentTool({
             tool: "write",
             sessionKey: trimmedSessionKey,
             args: { path: name, content: agentFiles[name].content },

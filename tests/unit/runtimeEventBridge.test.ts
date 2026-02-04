@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  classifyGatewayEventKind,
   dedupeRunLines,
   getAgentSummaryPatch,
   getChatSummaryPatch,
@@ -10,6 +11,14 @@ import {
 } from "@/features/agents/state/runtimeEventBridge";
 
 describe("runtime event bridge helpers", () => {
+  it("classifies gateway events by routing category", () => {
+    expect(classifyGatewayEventKind("presence")).toBe("summary-refresh");
+    expect(classifyGatewayEventKind("heartbeat")).toBe("summary-refresh");
+    expect(classifyGatewayEventKind("chat")).toBe("runtime-chat");
+    expect(classifyGatewayEventKind("agent")).toBe("runtime-agent");
+    expect(classifyGatewayEventKind("unknown")).toBe("ignore");
+  });
+
   it("merges assistant stream text deterministically", () => {
     expect(mergeRuntimeStream("", "delta")).toBe("delta");
     expect(mergeRuntimeStream("hello", "hello world")).toBe("hello world");

@@ -34,6 +34,7 @@ import {
   useAgentStore,
 } from "@/features/agents/state/store";
 import {
+  classifyGatewayEventKind,
   type AgentEventPayload,
   type ChatEventPayload,
   dedupeRunLines,
@@ -57,6 +58,7 @@ import { buildAvatarDataUrl } from "@/lib/avatars/multiavatar";
 import { getStudioSettingsCoordinator } from "@/lib/studio/coordinator";
 import { resolveFocusedPreference, resolveStudioSessionId } from "@/lib/studio/settings";
 import { generateUUID } from "@/lib/gateway/openclaw/uuid";
+import { applySessionSettingMutation } from "@/features/agents/state/sessionSettingsMutations";
 
 type ChatHistoryMessage = Record<string, unknown>;
 
@@ -1052,31 +1054,6 @@ const AgentStudioPage = () => {
   }, [loadSummarySnapshot, status]);
 
   useEffect(() => {
-    if (status !== "connected") return;
-    const unsubscribe = client.onEvent((event: EventFrame) => {
-      if (event.event !== "presence" && event.event !== "heartbeat") return;
-      if (event.event === "heartbeat") {
-        setHeartbeatTick((prev) => prev + 1);
-        refreshHeartbeatLatestUpdate();
-      }
-      if (summaryRefreshRef.current !== null) {
-        window.clearTimeout(summaryRefreshRef.current);
-      }
-      summaryRefreshRef.current = window.setTimeout(() => {
-        summaryRefreshRef.current = null;
-        void loadSummarySnapshot();
-      }, 750);
-    });
-    return () => {
-      if (summaryRefreshRef.current !== null) {
-        window.clearTimeout(summaryRefreshRef.current);
-        summaryRefreshRef.current = null;
-      }
-      unsubscribe();
-    };
-  }, [client, loadSummarySnapshot, refreshHeartbeatLatestUpdate, status]);
-
-  useEffect(() => {
     if (!state.selectedAgentId) return;
     if (agents.some((agent) => agent.agentId === state.selectedAgentId)) return;
     dispatch({ type: "selectAgent", agentId: null });
@@ -1298,8 +1275,9 @@ const AgentStudioPage = () => {
         }
         let createdSession = agent.sessionCreated;
         if (!agent.sessionSettingsSynced) {
-          await client.call("sessions.patch", {
-            key: sessionKey,
+          await syncGatewaySessionSettings({
+            client,
+            sessionKey,
             model: agent.model ?? null,
             thinkingLevel: agent.thinkingLevel ?? null,
           });
@@ -1340,66 +1318,38 @@ const AgentStudioPage = () => {
     [agents, client, dispatch]
   );
 
-  const handleModelChange = useCallback(
-    async (agentId: string, sessionKey: string, value: string | null) => {
-      dispatch({
-        type: "updateAgent",
+  const handleSessionSettingChange = useCallback(
+    async (
+      agentId: string,
+      sessionKey: string,
+      field: "model" | "thinkingLevel",
+      value: string | null
+    ) => {
+      await applySessionSettingMutation({
+        agents,
+        dispatch,
+        client,
         agentId,
-        patch: { model: value, sessionSettingsSynced: false },
+        sessionKey,
+        field,
+        value,
       });
-      const agent = agents.find((entry) => entry.agentId === agentId);
-      if (!agent?.sessionCreated) return;
-      try {
-        await client.call("sessions.patch", {
-          key: sessionKey,
-          model: value ?? null,
-        });
-        dispatch({
-          type: "updateAgent",
-          agentId,
-          patch: { sessionSettingsSynced: true },
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to set model.";
-        dispatch({
-          type: "appendOutput",
-          agentId,
-          line: `Model update failed: ${msg}`,
-        });
-      }
     },
     [agents, client, dispatch]
   );
 
+  const handleModelChange = useCallback(
+    async (agentId: string, sessionKey: string, value: string | null) => {
+      await handleSessionSettingChange(agentId, sessionKey, "model", value);
+    },
+    [handleSessionSettingChange]
+  );
+
   const handleThinkingChange = useCallback(
     async (agentId: string, sessionKey: string, value: string | null) => {
-      dispatch({
-        type: "updateAgent",
-        agentId,
-        patch: { thinkingLevel: value, sessionSettingsSynced: false },
-      });
-      const agent = agents.find((entry) => entry.agentId === agentId);
-      if (!agent?.sessionCreated) return;
-      try {
-        await client.call("sessions.patch", {
-          key: sessionKey,
-          thinkingLevel: value ?? null,
-        });
-        dispatch({
-          type: "updateAgent",
-          agentId,
-          patch: { sessionSettingsSynced: true },
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to set thinking level.";
-        dispatch({
-          type: "appendOutput",
-          agentId,
-          line: `Thinking update failed: ${msg}`,
-        });
-      }
+      await handleSessionSettingChange(agentId, sessionKey, "thinkingLevel", value);
     },
-    [agents, client, dispatch]
+    [handleSessionSettingChange]
   );
 
 
@@ -1426,8 +1376,24 @@ const AgentStudioPage = () => {
   );
 
   useEffect(() => {
-    return client.onEvent((event: EventFrame) => {
-      if (event.event === "chat") {
+    const unsubscribe = client.onEvent((event: EventFrame) => {
+      const eventKind = classifyGatewayEventKind(event.event);
+      if (eventKind === "summary-refresh") {
+        if (status !== "connected") return;
+        if (event.event === "heartbeat") {
+          setHeartbeatTick((prev) => prev + 1);
+          refreshHeartbeatLatestUpdate();
+        }
+        if (summaryRefreshRef.current !== null) {
+          window.clearTimeout(summaryRefreshRef.current);
+        }
+        summaryRefreshRef.current = window.setTimeout(() => {
+          summaryRefreshRef.current = null;
+          void loadSummarySnapshot();
+        }, 750);
+        return;
+      }
+      if (eventKind === "runtime-chat") {
         const payload = event.payload as ChatEventPayload | undefined;
         if (!payload?.sessionKey) return;
         if (payload.runId) {
@@ -1577,7 +1543,7 @@ const AgentStudioPage = () => {
         return;
       }
 
-      if (event.event !== "agent") return;
+      if (eventKind !== "runtime-agent") return;
       const payload = event.payload as AgentEventPayload | undefined;
       if (!payload?.runId) return;
       const directMatch = payload.sessionKey
@@ -1732,13 +1698,23 @@ const AgentStudioPage = () => {
         patch: transition.patch,
       });
     });
+    return () => {
+      if (summaryRefreshRef.current !== null) {
+        window.clearTimeout(summaryRefreshRef.current);
+        summaryRefreshRef.current = null;
+      }
+      unsubscribe();
+    };
   }, [
     appendUniqueToolLines,
     clearRunTracking,
     client,
     dispatch,
     loadAgentHistory,
+    loadSummarySnapshot,
+    refreshHeartbeatLatestUpdate,
     state.agents,
+    status,
     summarizeThinkingMessage,
     updateSpecialLatestUpdate,
   ]);

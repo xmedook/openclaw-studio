@@ -60,6 +60,19 @@ export type AgentEventPayload = {
   sessionKey?: string;
 };
 
+export type GatewayEventKind =
+  | "summary-refresh"
+  | "runtime-chat"
+  | "runtime-agent"
+  | "ignore";
+
+export const classifyGatewayEventKind = (event: string): GatewayEventKind => {
+  if (event === "presence" || event === "heartbeat") return "summary-refresh";
+  if (event === "chat") return "runtime-chat";
+  if (event === "agent") return "runtime-agent";
+  return "ignore";
+};
+
 export const mergeRuntimeStream = (current: string, incoming: string): string => {
   if (!incoming) return current;
   if (!current) return incoming;
