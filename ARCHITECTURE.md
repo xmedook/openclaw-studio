@@ -49,13 +49,13 @@ This keeps feature cohesion high while preserving a clear client/server boundary
 ### 1) Studio settings + focused preferences
 - **Source of truth**: JSON settings file at `~/.openclaw/openclaw-studio/settings.json` (resolved via `resolveStateDir`, with legacy fallbacks in `src/lib/clawdbot/paths.ts`). Settings store the gateway URL/token plus per-gateway focused preferences and studio session ids.
 - **Server boundary**: `src/app/api/studio/route.ts` loads/saves settings via `src/lib/studio/settings.server.ts`.
-- **Client boundary**: `useGatewayConnection` and focused/session flows in `src/app/page.tsx` use a shared `StudioSettingsCoordinator` to load settings and coalesce `/api/studio` patch writes.
+- **Client boundary**: `useGatewayConnection` and focused/session flows in `src/app/page.tsx` use a shared `StudioSettingsCoordinator` to load settings, coalesce debounced `/api/studio` patch writes, and force immediate session-id writes when bootstrapping a new studio session.
 
 Flow:
 1. UI loads settings from `/api/studio`.
 2. Gateway URL/token seed the connection panel and auto-connect.
 3. Focused filter + selected agent + studio session id are loaded for the current gateway.
-4. UI schedules focused/session/gateway patches through the coordinator, which coalesces and flushes writes to `/api/studio`.
+4. UI schedules focused and gateway patches through the coordinator, while studio-session bootstrap uses an immediate coordinator patch; both paths converge on `/api/studio`.
 
 ### 2) Agent runtime (gateway)
 - **Client-side only**: `GatewayClient` uses WebSocket to connect to the gateway and wraps the vendored `GatewayBrowserClient`.
