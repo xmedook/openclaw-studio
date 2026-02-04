@@ -18,7 +18,7 @@ type UseAgentFilesEditorResult = {
   agentFilesError: string | null;
   setAgentFileContent: (value: string) => void;
   handleAgentFileTabChange: (nextTab: AgentFileName) => Promise<void>;
-  saveAgentFiles: () => Promise<void>;
+  saveAgentFiles: () => Promise<boolean>;
 };
 
 const extractToolText = (result: unknown) => {
@@ -104,7 +104,7 @@ export const useAgentFilesEditor = (sessionKey: string | null | undefined): UseA
       const trimmedSessionKey = sessionKey?.trim();
       if (!trimmedSessionKey) {
         setAgentFilesError("Session key is missing for this agent.");
-        return;
+        return false;
       }
       await Promise.all(
         AGENT_FILE_NAMES.map(async (name) => {
@@ -127,9 +127,11 @@ export const useAgentFilesEditor = (sessionKey: string | null | undefined): UseA
       }
       setAgentFiles(nextState);
       setAgentFilesDirty(false);
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to save agent files.";
       setAgentFilesError(message);
+      return false;
     } finally {
       setAgentFilesSaving(false);
     }
@@ -139,7 +141,8 @@ export const useAgentFilesEditor = (sessionKey: string | null | undefined): UseA
     async (nextTab: AgentFileName) => {
       if (nextTab === agentFileTab) return;
       if (agentFilesDirty && !agentFilesSaving) {
-        await saveAgentFiles();
+        const saved = await saveAgentFiles();
+        if (!saved) return;
       }
       setAgentFileTab(nextTab);
     },

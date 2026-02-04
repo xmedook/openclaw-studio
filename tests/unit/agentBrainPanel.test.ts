@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { AgentState } from "@/features/agents/state/store";
 import { AgentBrainPanel } from "@/features/agents/components/AgentBrainPanel";
 
@@ -111,5 +111,40 @@ describe("AgentBrainPanel", () => {
     await waitFor(() => {
       expect(screen.getByText("Session key is missing for this agent.")).toBeInTheDocument();
     });
+  });
+
+  it("saves_dirty_changes_before_close", async () => {
+    const agents = [createAgent("agent-1", "Alpha", "session-1")];
+    const onClose = vi.fn();
+    const fetchMock = mockFetch();
+
+    render(
+      createElement(AgentBrainPanel, {
+        agents,
+        selectedAgentId: "agent-1",
+        onClose,
+      })
+    );
+
+    const textarea = await screen.findByDisplayValue("alpha agents");
+    fireEvent.change(textarea, { target: { value: "alpha agents updated" } });
+    fireEvent.click(screen.getByTestId("agent-brain-close"));
+
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    const writeCall = fetchMock.mock.calls.find(([, init]) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        tool?: string;
+        args?: { path?: string; content?: string };
+      };
+      return (
+        body.tool === "write" &&
+        body.args?.path === "AGENTS.md" &&
+        body.args?.content === "alpha agents updated"
+      );
+    });
+    expect(writeCall).toBeTruthy();
   });
 });

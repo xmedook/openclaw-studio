@@ -34,9 +34,11 @@ export const AgentBrainPanel = ({
     agentFileTab,
     agentFilesLoading,
     agentFilesSaving,
+    agentFilesDirty,
     agentFilesError,
     setAgentFileContent,
     handleAgentFileTabChange,
+    saveAgentFiles,
   } = useAgentFilesEditor(selectedAgent?.sessionKey ?? null);
 
   const handleTabChange = useCallback(
@@ -45,6 +47,15 @@ export const AgentBrainPanel = ({
     },
     [handleAgentFileTabChange]
   );
+
+  const handleClose = useCallback(async () => {
+    if (agentFilesSaving) return;
+    if (agentFilesDirty) {
+      const saved = await saveAgentFiles();
+      if (!saved) return;
+    }
+    onClose();
+  }, [agentFilesDirty, agentFilesSaving, onClose, saveAgentFiles]);
 
   return (
     <div
@@ -65,7 +76,10 @@ export const AgentBrainPanel = ({
           className="rounded-md border border-border/80 bg-card/70 px-3 py-2 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground transition hover:border-border hover:bg-muted/65"
           type="button"
           data-testid="agent-brain-close"
-          onClick={onClose}
+          disabled={agentFilesSaving}
+          onClick={() => {
+            void handleClose();
+          }}
         >
           Close
         </button>
