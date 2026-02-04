@@ -48,9 +48,6 @@ export const FleetSidebar = ({
     >
       <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-[linear-gradient(90deg,color-mix(in_oklch,var(--primary)_8%,transparent)_0%,transparent_80%)]" />
       <div className="px-1">
-        <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-          Fleet
-        </p>
         <p className="console-title text-2xl leading-none text-foreground">Agents ({agents.length})</p>
       </div>
 

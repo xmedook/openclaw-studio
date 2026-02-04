@@ -1816,7 +1816,6 @@ const AgentStudioPage = () => {
       <div className="relative z-10 flex h-screen flex-col gap-4 px-3 py-3 sm:px-4 sm:py-4 md:px-6 md:py-6">
         <div className="w-full">
           <HeaderBar
-            agentCount={agents.length}
             onConnectionSettings={() => setShowConnectionPanel((prev) => !prev)}
             onBrainFiles={handleBrainToggle}
             brainFilesOpen={brainPanelOpen}

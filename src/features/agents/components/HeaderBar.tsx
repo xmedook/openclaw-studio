@@ -2,7 +2,6 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Brain, Ellipsis } from "lucide-react";
 
 type HeaderBarProps = {
-  agentCount: number;
   onConnectionSettings: () => void;
   onBrainFiles: () => void;
   brainFilesOpen: boolean;
@@ -10,22 +9,18 @@ type HeaderBarProps = {
 };
 
 export const HeaderBar = ({
-  agentCount,
   onConnectionSettings,
   onBrainFiles,
   brainFilesOpen,
   brainDisabled = false,
 }: HeaderBarProps) => {
   return (
-    <div className="glass-panel fade-up relative overflow-hidden px-4 py-4 sm:px-6">
+    <div className="glass-panel fade-up relative overflow-hidden px-4 py-2">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,color-mix(in_oklch,var(--primary)_7%,transparent)_48%,transparent_100%)] opacity-55" />
       <div className="relative grid items-center gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
         <div className="min-w-0">
           <p className="console-title text-2xl leading-none text-foreground sm:text-3xl">
             OpenClaw Studio
-          </p>
-          <p className="mt-1 truncate text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            {agentCount} agents
           </p>
         </div>
 
