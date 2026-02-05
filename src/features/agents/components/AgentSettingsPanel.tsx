@@ -283,7 +283,7 @@ export const AgentSettingsPanel = ({
               Delete agent
             </div>
             <div className="mt-3 text-[11px] text-muted-foreground">
-              Removes the agent from the gateway config.
+              Removes the agent from the gateway config and deletes its cron jobs.
             </div>
             <button
               className="mt-3 w-full rounded-md border border-destructive/50 bg-transparent px-3 py-2 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-destructive shadow-sm transition hover:bg-destructive/10"

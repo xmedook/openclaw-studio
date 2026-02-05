@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   listCronJobs,
   removeCronJob,
+  removeCronJobsForAgent,
   runCronJobNow,
 } from "@/lib/cron/gateway";
 import type { GatewayClient } from "@/lib/gateway/GatewayClient";
@@ -45,5 +46,58 @@ describe("cron gateway client", () => {
 
     await expect(runCronJobNow(client, "   ")).rejects.toThrow("Cron job id is required.");
     await expect(removeCronJob(client, "")).rejects.toThrow("Cron job id is required.");
+  });
+
+  it("removes_all_jobs_for_agent", async () => {
+    const client = {
+      call: vi.fn(async (method: string, payload: { id?: string }) => {
+        if (method === "cron.list") {
+          return {
+            jobs: [
+              { id: "job-1", name: "Job 1", agentId: "agent-1" },
+              { id: "job-2", name: "Job 2", agentId: "agent-2" },
+              { id: "job-3", name: "Job 3", agentId: "agent-1" },
+            ],
+          };
+        }
+        if (method === "cron.remove") {
+          return { ok: true, removed: payload.id !== "job-3" };
+        }
+        throw new Error(`Unexpected method: ${method}`);
+      }),
+    } as unknown as GatewayClient;
+
+    await expect(removeCronJobsForAgent(client, "agent-1")).resolves.toBe(1);
+    expect(client.call).toHaveBeenCalledWith("cron.list", { includeDisabled: true });
+    expect(client.call).toHaveBeenCalledWith("cron.remove", { id: "job-1" });
+    expect(client.call).toHaveBeenCalledWith("cron.remove", { id: "job-3" });
+  });
+
+  it("throws_when_agent_id_missing_for_bulk_remove", async () => {
+    const client = {
+      call: vi.fn(async () => ({ jobs: [] })),
+    } as unknown as GatewayClient;
+
+    await expect(removeCronJobsForAgent(client, "   ")).rejects.toThrow("Agent id is required.");
+  });
+
+  it("throws_when_any_bulk_remove_call_fails", async () => {
+    const client = {
+      call: vi.fn(async (method: string) => {
+        if (method === "cron.list") {
+          return {
+            jobs: [{ id: "job-1", name: "Job 1", agentId: "agent-1" }],
+          };
+        }
+        if (method === "cron.remove") {
+          return { ok: false, removed: false };
+        }
+        throw new Error(`Unexpected method: ${method}`);
+      }),
+    } as unknown as GatewayClient;
+
+    await expect(removeCronJobsForAgent(client, "agent-1")).rejects.toThrow(
+      'Failed to delete cron job "Job 1" (job-1).'
+    );
   });
 });

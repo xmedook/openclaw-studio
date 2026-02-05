@@ -24,6 +24,14 @@ const resolveJobId = (jobId: string): string => {
   return trimmed;
 };
 
+const resolveAgentId = (agentId: string): string => {
+  const trimmed = agentId.trim();
+  if (!trimmed) {
+    throw new Error("Agent id is required.");
+  }
+  return trimmed;
+};
+
 export const listCronJobs = async (
   client: GatewayClient,
   params: CronListParams = {}
@@ -53,4 +61,24 @@ export const removeCronJob = async (
   return client.call<CronRemoveResult>("cron.remove", {
     id,
   });
+};
+
+export const removeCronJobsForAgent = async (
+  client: GatewayClient,
+  agentId: string
+): Promise<number> => {
+  const id = resolveAgentId(agentId);
+  const result = await listCronJobs(client, { includeDisabled: true });
+  const jobs = result.jobs.filter((job) => job.agentId?.trim() === id);
+  let removed = 0;
+  for (const job of jobs) {
+    const removeResult = await removeCronJob(client, job.id);
+    if (!removeResult.ok) {
+      throw new Error(`Failed to delete cron job "${job.name}" (${job.id}).`);
+    }
+    if (removeResult.removed) {
+      removed += 1;
+    }
+  }
+  return removed;
 };
