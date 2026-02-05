@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { AgentState } from "@/features/agents/state/store";
 import { AgentSettingsPanel } from "@/features/agents/components/AgentSettingsPanel";
 import type { CronJobSummary } from "@/lib/cron/types";
+import type { AgentHeartbeatSummary } from "@/lib/heartbeat/gateway";
 
 const createAgent = (): AgentState => ({
   agentId: "agent-1",
@@ -47,6 +48,22 @@ const createCronJob = (id: string): CronJobSummary => ({
   wakeMode: "next-heartbeat",
   payload: { kind: "agentTurn", message: "hi" },
   state: {},
+});
+
+const createHeartbeat = (
+  source: AgentHeartbeatSummary["source"] = "override"
+): AgentHeartbeatSummary => ({
+  id: "agent-1",
+  agentId: "agent-1",
+  source,
+  enabled: true,
+  heartbeat: {
+    every: "30m",
+    target: "last",
+    includeReasoning: false,
+    ackMaxChars: 300,
+    activeHours: null,
+  },
 });
 
 describe("AgentSettingsPanel", () => {
@@ -300,5 +317,88 @@ describe("AgentSettingsPanel", () => {
     );
 
     expect(screen.getByText("No cron jobs for this agent.")).toBeInTheDocument();
+  });
+
+  it("renders_heartbeat_section_below_cron", () => {
+    render(
+      createElement(AgentSettingsPanel, {
+        agent: createAgent(),
+        onClose: vi.fn(),
+        onRename: vi.fn(async () => true),
+        onNewSession: vi.fn(),
+        onDelete: vi.fn(),
+        onToolCallingToggle: vi.fn(),
+        onThinkingTracesToggle: vi.fn(),
+        cronJobs: [createCronJob("job-1")],
+        cronLoading: false,
+        cronError: null,
+        cronRunBusyJobId: null,
+        cronDeleteBusyJobId: null,
+        onRunCronJob: vi.fn(),
+        onDeleteCronJob: vi.fn(),
+        heartbeats: [createHeartbeat()],
+      })
+    );
+
+    const cronSection = screen.getByTestId("agent-settings-cron");
+    const heartbeatSection = screen.getByTestId("agent-settings-heartbeat");
+    expect(heartbeatSection).toBeInTheDocument();
+    const position = cronSection.compareDocumentPosition(heartbeatSection);
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("invokes_run_heartbeat_and_disables_delete_for_inherited", () => {
+    const onRunHeartbeat = vi.fn();
+    render(
+      createElement(AgentSettingsPanel, {
+        agent: createAgent(),
+        onClose: vi.fn(),
+        onRename: vi.fn(async () => true),
+        onNewSession: vi.fn(),
+        onDelete: vi.fn(),
+        onToolCallingToggle: vi.fn(),
+        onThinkingTracesToggle: vi.fn(),
+        cronJobs: [],
+        cronLoading: false,
+        cronError: null,
+        cronRunBusyJobId: null,
+        cronDeleteBusyJobId: null,
+        onRunCronJob: vi.fn(),
+        onDeleteCronJob: vi.fn(),
+        heartbeats: [createHeartbeat("default")],
+        onRunHeartbeat,
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Run heartbeat for agent-1 now" }));
+    expect(onRunHeartbeat).toHaveBeenCalledWith("agent-1");
+    expect(screen.getByRole("button", { name: "Delete heartbeat for agent-1" })).toBeDisabled();
+  });
+
+  it("invokes_delete_heartbeat_for_override", () => {
+    const onDeleteHeartbeat = vi.fn();
+    render(
+      createElement(AgentSettingsPanel, {
+        agent: createAgent(),
+        onClose: vi.fn(),
+        onRename: vi.fn(async () => true),
+        onNewSession: vi.fn(),
+        onDelete: vi.fn(),
+        onToolCallingToggle: vi.fn(),
+        onThinkingTracesToggle: vi.fn(),
+        cronJobs: [],
+        cronLoading: false,
+        cronError: null,
+        cronRunBusyJobId: null,
+        cronDeleteBusyJobId: null,
+        onRunCronJob: vi.fn(),
+        onDeleteCronJob: vi.fn(),
+        heartbeats: [createHeartbeat("override")],
+        onDeleteHeartbeat,
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete heartbeat for agent-1" }));
+    expect(onDeleteHeartbeat).toHaveBeenCalledWith("agent-1");
   });
 });

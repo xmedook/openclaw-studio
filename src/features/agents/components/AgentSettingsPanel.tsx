@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Play, Trash2 } from "lucide-react";
 import type { AgentState } from "@/features/agents/state/store";
 import type { CronJobSummary } from "@/lib/cron/types";
+import type { AgentHeartbeatSummary } from "@/lib/heartbeat/gateway";
 
 type AgentSettingsPanelProps = {
   agent: AgentState;
@@ -21,6 +22,13 @@ type AgentSettingsPanelProps = {
   cronDeleteBusyJobId: string | null;
   onRunCronJob: (jobId: string) => Promise<void> | void;
   onDeleteCronJob: (jobId: string) => Promise<void> | void;
+  heartbeats?: AgentHeartbeatSummary[];
+  heartbeatLoading?: boolean;
+  heartbeatError?: string | null;
+  heartbeatRunBusyId?: string | null;
+  heartbeatDeleteBusyId?: string | null;
+  onRunHeartbeat?: (heartbeatId: string) => Promise<void> | void;
+  onDeleteHeartbeat?: (heartbeatId: string) => Promise<void> | void;
 };
 
 const formatEveryMs = (everyMs: number) => {
@@ -45,6 +53,15 @@ const formatCronPayload = (payload: CronJobSummary["payload"]) => {
   return payload.message;
 };
 
+const formatHeartbeatSchedule = (heartbeat: AgentHeartbeatSummary) =>
+  `Every ${heartbeat.heartbeat.every}`;
+
+const formatHeartbeatTarget = (heartbeat: AgentHeartbeatSummary) =>
+  `Target: ${heartbeat.heartbeat.target}`;
+
+const formatHeartbeatSource = (heartbeat: AgentHeartbeatSummary) =>
+  heartbeat.source === "override" ? "Override" : "Inherited";
+
 export const AgentSettingsPanel = ({
   agent,
   onClose,
@@ -61,6 +78,13 @@ export const AgentSettingsPanel = ({
   cronDeleteBusyJobId,
   onRunCronJob,
   onDeleteCronJob,
+  heartbeats = [],
+  heartbeatLoading = false,
+  heartbeatError = null,
+  heartbeatRunBusyId = null,
+  heartbeatDeleteBusyId = null,
+  onRunHeartbeat = () => {},
+  onDeleteHeartbeat = () => {},
 }: AgentSettingsPanelProps) => {
   const [nameDraft, setNameDraft] = useState(agent.name);
   const [renameSaving, setRenameSaving] = useState(false);
@@ -266,6 +290,78 @@ export const AgentSettingsPanel = ({
                           void onDeleteCronJob(job.id);
                         }}
                         disabled={busy}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+        </section>
+
+        <section className="rounded-md border border-border/80 bg-card/70 p-4" data-testid="agent-settings-heartbeat">
+          <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            Heartbeats
+          </div>
+          {heartbeatLoading ? (
+            <div className="mt-3 text-[11px] text-muted-foreground">Loading heartbeats...</div>
+          ) : null}
+          {!heartbeatLoading && heartbeatError ? (
+            <div className="mt-3 rounded-md border border-destructive bg-destructive px-3 py-2 text-xs text-destructive-foreground">
+              {heartbeatError}
+            </div>
+          ) : null}
+          {!heartbeatLoading && !heartbeatError && heartbeats.length === 0 ? (
+            <div className="mt-3 text-[11px] text-muted-foreground">No heartbeats for this agent.</div>
+          ) : null}
+          {!heartbeatLoading && !heartbeatError && heartbeats.length > 0 ? (
+            <div className="mt-3 flex flex-col gap-2">
+              {heartbeats.map((heartbeat) => {
+                const runBusy = heartbeatRunBusyId === heartbeat.id;
+                const deleteBusy = heartbeatDeleteBusyId === heartbeat.id;
+                const busy = runBusy || deleteBusy;
+                const deleteAllowed = heartbeat.source === "override";
+                return (
+                  <div
+                    key={heartbeat.id}
+                    className="group/heartbeat flex items-start justify-between gap-2 rounded-md border border-border/80 bg-card/75 px-3 py-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground">
+                        {heartbeat.agentId}
+                      </div>
+                      <div className="truncate text-[11px] text-muted-foreground">
+                        {formatHeartbeatSchedule(heartbeat)}
+                      </div>
+                      <div className="truncate text-[11px] text-muted-foreground">
+                        {formatHeartbeatTarget(heartbeat)}
+                      </div>
+                      <div className="truncate text-[11px] text-muted-foreground">
+                        {formatHeartbeatSource(heartbeat)}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 opacity-0 transition group-focus-within/heartbeat:opacity-100 group-hover/heartbeat:opacity-100">
+                      <button
+                        className="flex h-7 w-7 items-center justify-center rounded-md border border-border/80 bg-card/70 text-muted-foreground transition hover:border-border hover:bg-muted/65 disabled:cursor-not-allowed disabled:opacity-60"
+                        type="button"
+                        aria-label={`Run heartbeat for ${heartbeat.agentId} now`}
+                        onClick={() => {
+                          void onRunHeartbeat(heartbeat.id);
+                        }}
+                        disabled={busy}
+                      >
+                        <Play className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        className="flex h-7 w-7 items-center justify-center rounded-md border border-destructive/40 bg-transparent text-destructive transition hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
+                        type="button"
+                        aria-label={`Delete heartbeat for ${heartbeat.agentId}`}
+                        onClick={() => {
+                          void onDeleteHeartbeat(heartbeat.id);
+                        }}
+                        disabled={busy || !deleteAllowed}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>

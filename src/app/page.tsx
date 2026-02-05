@@ -56,11 +56,17 @@ import type { AgentStoreSeed, AgentState } from "@/features/agents/state/store";
 import type { CronJobSummary } from "@/lib/cron/types";
 import { listCronJobs, removeCronJob, runCronJobNow } from "@/lib/cron/gateway";
 import { filterCronJobsForAgent, resolveLatestCronJobForAgent } from "@/lib/cron/selectors";
+import {
+  listHeartbeatsForAgent,
+  triggerHeartbeatNow,
+  type AgentHeartbeatSummary,
+} from "@/lib/heartbeat/gateway";
 import { logger } from "@/lib/logger";
 import {
   createGatewayAgent,
   renameGatewayAgent,
   deleteGatewayAgent,
+  removeGatewayHeartbeatOverride,
 } from "@/lib/gateway/agentConfig";
 import {
   buildAgentMainSessionKey,
@@ -291,6 +297,11 @@ const AgentStudioPage = () => {
   const [settingsCronError, setSettingsCronError] = useState<string | null>(null);
   const [cronRunBusyJobId, setCronRunBusyJobId] = useState<string | null>(null);
   const [cronDeleteBusyJobId, setCronDeleteBusyJobId] = useState<string | null>(null);
+  const [settingsHeartbeats, setSettingsHeartbeats] = useState<AgentHeartbeatSummary[]>([]);
+  const [settingsHeartbeatLoading, setSettingsHeartbeatLoading] = useState(false);
+  const [settingsHeartbeatError, setSettingsHeartbeatError] = useState<string | null>(null);
+  const [heartbeatRunBusyId, setHeartbeatRunBusyId] = useState<string | null>(null);
+  const [heartbeatDeleteBusyId, setHeartbeatDeleteBusyId] = useState<string | null>(null);
   const [brainPanelOpen, setBrainPanelOpen] = useState(false);
   const [deleteAgentBlock, setDeleteAgentBlock] = useState<DeleteAgentBlockState | null>(null);
   const thinkingDebugRef = useRef<Set<string>>(new Set());
@@ -449,6 +460,31 @@ const AgentStudioPage = () => {
         logger.error(message);
       } finally {
         setSettingsCronLoading(false);
+      }
+    },
+    [client]
+  );
+
+  const loadHeartbeatsForSettingsAgent = useCallback(
+    async (agentId: string) => {
+      const resolvedAgentId = agentId.trim();
+      if (!resolvedAgentId) {
+        setSettingsHeartbeats([]);
+        setSettingsHeartbeatError("Failed to load heartbeats: missing agent id.");
+        return;
+      }
+      setSettingsHeartbeatLoading(true);
+      setSettingsHeartbeatError(null);
+      try {
+        const result = await listHeartbeatsForAgent(client, resolvedAgentId);
+        setSettingsHeartbeats(result.heartbeats);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to load heartbeats.";
+        setSettingsHeartbeats([]);
+        setSettingsHeartbeatError(message);
+        logger.error(message);
+      } finally {
+        setSettingsHeartbeatLoading(false);
       }
     },
     [client]
@@ -742,10 +778,16 @@ const AgentStudioPage = () => {
       setSettingsCronError(null);
       setCronRunBusyJobId(null);
       setCronDeleteBusyJobId(null);
+      setSettingsHeartbeats([]);
+      setSettingsHeartbeatLoading(false);
+      setSettingsHeartbeatError(null);
+      setHeartbeatRunBusyId(null);
+      setHeartbeatDeleteBusyId(null);
       return;
     }
     void loadCronJobsForSettingsAgent(settingsAgentId);
-  }, [loadCronJobsForSettingsAgent, settingsAgentId, status]);
+    void loadHeartbeatsForSettingsAgent(settingsAgentId);
+  }, [loadCronJobsForSettingsAgent, loadHeartbeatsForSettingsAgent, settingsAgentId, status]);
 
   useEffect(() => {
     if (!brainPanelOpen) return;
@@ -1062,6 +1104,60 @@ const AgentStudioPage = () => {
       }
     },
     [client, cronDeleteBusyJobId, cronRunBusyJobId, loadCronJobsForSettingsAgent]
+  );
+
+  const handleRunHeartbeat = useCallback(
+    async (agentId: string, heartbeatId: string) => {
+      const resolvedAgentId = agentId.trim();
+      const resolvedHeartbeatId = heartbeatId.trim();
+      if (!resolvedAgentId || !resolvedHeartbeatId) return;
+      if (heartbeatRunBusyId || heartbeatDeleteBusyId) return;
+      setHeartbeatRunBusyId(resolvedHeartbeatId);
+      setSettingsHeartbeatError(null);
+      try {
+        await triggerHeartbeatNow(client, resolvedAgentId);
+        await loadHeartbeatsForSettingsAgent(resolvedAgentId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to trigger heartbeat.";
+        setSettingsHeartbeatError(message);
+        logger.error(message);
+      } finally {
+        setHeartbeatRunBusyId((current) =>
+          current === resolvedHeartbeatId ? null : current
+        );
+      }
+    },
+    [client, heartbeatDeleteBusyId, heartbeatRunBusyId, loadHeartbeatsForSettingsAgent]
+  );
+
+  const handleDeleteHeartbeat = useCallback(
+    async (agentId: string, heartbeatId: string) => {
+      const resolvedAgentId = agentId.trim();
+      const resolvedHeartbeatId = heartbeatId.trim();
+      if (!resolvedAgentId || !resolvedHeartbeatId) return;
+      if (heartbeatRunBusyId || heartbeatDeleteBusyId) return;
+      setHeartbeatDeleteBusyId(resolvedHeartbeatId);
+      setSettingsHeartbeatError(null);
+      try {
+        await removeGatewayHeartbeatOverride({
+          client,
+          agentId: resolvedAgentId,
+        });
+        setSettingsHeartbeats((heartbeats) =>
+          heartbeats.filter((heartbeat) => heartbeat.id !== resolvedHeartbeatId)
+        );
+        await loadHeartbeatsForSettingsAgent(resolvedAgentId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to delete heartbeat.";
+        setSettingsHeartbeatError(message);
+        logger.error(message);
+      } finally {
+        setHeartbeatDeleteBusyId((current) =>
+          current === resolvedHeartbeatId ? null : current
+        );
+      }
+    },
+    [client, heartbeatDeleteBusyId, heartbeatRunBusyId, loadHeartbeatsForSettingsAgent]
   );
 
   const handleCreateAgent = useCallback(async () => {
@@ -1903,6 +1999,17 @@ const AgentStudioPage = () => {
                   cronDeleteBusyJobId={cronDeleteBusyJobId}
                   onRunCronJob={(jobId) => handleRunCronJob(settingsAgent.agentId, jobId)}
                   onDeleteCronJob={(jobId) => handleDeleteCronJob(settingsAgent.agentId, jobId)}
+                  heartbeats={settingsHeartbeats}
+                  heartbeatLoading={settingsHeartbeatLoading}
+                  heartbeatError={settingsHeartbeatError}
+                  heartbeatRunBusyId={heartbeatRunBusyId}
+                  heartbeatDeleteBusyId={heartbeatDeleteBusyId}
+                  onRunHeartbeat={(heartbeatId) =>
+                    handleRunHeartbeat(settingsAgent.agentId, heartbeatId)
+                  }
+                  onDeleteHeartbeat={(heartbeatId) =>
+                    handleDeleteHeartbeat(settingsAgent.agentId, heartbeatId)
+                  }
                 />
               </div>
             ) : null}

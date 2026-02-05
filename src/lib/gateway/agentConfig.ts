@@ -292,3 +292,34 @@ export const updateGatewayHeartbeat = async (params: {
   const nextConfig = writeConfigAgentList(baseConfig, nextList);
   return resolveHeartbeatSettings(nextConfig, params.agentId);
 };
+
+export const removeGatewayHeartbeatOverride = async (params: {
+  client: GatewayClient;
+  agentId: string;
+  sessionKey?: string;
+}): Promise<AgentHeartbeatResult> => {
+  const snapshot = await params.client.call<GatewayConfigSnapshot>("config.get", {});
+  const baseConfig = isRecord(snapshot.config) ? snapshot.config : {};
+  const list = readConfigAgentList(baseConfig);
+  const nextList = list.map((entry) => {
+    if (entry.id !== params.agentId) return entry;
+    if (!("heartbeat" in entry)) return entry;
+    const next = { ...entry };
+    delete next.heartbeat;
+    return next;
+  });
+  const changed = nextList.some((entry, index) => entry !== list[index]);
+  if (!changed) {
+    return resolveHeartbeatSettings(baseConfig, params.agentId);
+  }
+  const patch = { agents: { list: nextList } };
+  await applyGatewayConfigPatch({
+    client: params.client,
+    patch,
+    baseHash: snapshot.hash ?? undefined,
+    exists: snapshot.exists,
+    sessionKey: params.sessionKey,
+  });
+  const nextConfig = writeConfigAgentList(baseConfig, nextList);
+  return resolveHeartbeatSettings(nextConfig, params.agentId);
+};
