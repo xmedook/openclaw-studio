@@ -4,10 +4,19 @@ import os from "node:os";
 import path from "node:path";
 
 import { resolveUserPath } from "@/lib/clawdbot/paths";
-import type {
-  PathAutocompleteEntry,
-  PathAutocompleteResult,
-} from "@/lib/path-suggestions/types";
+
+export type PathAutocompleteEntry = {
+  name: string;
+  fullPath: string;
+  displayPath: string;
+  isDirectory: boolean;
+};
+
+export type PathAutocompleteResult = {
+  query: string;
+  directory: string;
+  entries: PathAutocompleteEntry[];
+};
 
 export const ensureDir = (dirPath: string) => {
   if (fs.existsSync(dirPath)) {

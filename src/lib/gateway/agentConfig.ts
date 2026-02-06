@@ -10,7 +10,7 @@ import type {
   AgentHeartbeat,
   AgentHeartbeatResult,
   AgentHeartbeatUpdatePayload,
-} from "@/lib/gateway/heartbeat";
+} from "@/lib/heartbeat/gateway";
 
 export type GatewayConfigSnapshot = {
   config?: Record<string, unknown>;
