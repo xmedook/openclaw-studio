@@ -74,6 +74,41 @@ describe("gateway config patch helpers", () => {
     expect(entry.id).toBe("new-agent-3");
   });
 
+  it("slugifies agent ids from names", async () => {
+    const client = {
+      call: vi.fn(async (method: string) => {
+        if (method === "config.get") {
+          return {
+            exists: true,
+            hash: "hash-create-slug-1",
+            config: {
+              agents: { list: [] },
+            },
+          };
+        }
+        if (method === "config.patch") {
+          return { ok: true };
+        }
+        throw new Error("unexpected method");
+      }),
+    } as unknown as GatewayClient;
+
+    const entry = await createGatewayAgent({ client, name: "My Project" });
+    expect(entry.id).toBe("my-project");
+    expect(entry.name).toBe("My Project");
+
+    const patchCall = (client.call as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([method]) => method === "config.patch"
+    );
+    expect(patchCall).toBeTruthy();
+    const params = patchCall?.[1] as { raw?: string; baseHash?: string };
+    const raw = params?.raw ?? "";
+    const parsed = JSON.parse(raw) as { agents?: { list?: Array<{ id?: string; name?: string }> } };
+    const appended = parsed.agents?.list?.find((item) => item.id === "my-project");
+    expect(params.baseHash).toBe("hash-create-slug-1");
+    expect(appended).toEqual({ id: "my-project", name: "My Project" });
+  });
+
   it("returns no-op on deleting a missing agent and skips config.patch", async () => {
     const client = {
       call: vi.fn(async (method: string) => {
@@ -113,6 +148,32 @@ describe("gateway config patch helpers", () => {
       "Agent name is required."
     );
     expect(client.call).not.toHaveBeenCalled();
+  });
+
+  it("fails fast when create name produces an empty id slug", async () => {
+    const client = {
+      call: vi.fn(async (method: string) => {
+        if (method === "config.get") {
+          return {
+            exists: true,
+            hash: "hash-create-empty-slug-1",
+            config: {
+              agents: { list: [] },
+            },
+          };
+        }
+        if (method === "config.patch") {
+          throw new Error("config.patch should not be called");
+        }
+        throw new Error("unexpected method");
+      }),
+    } as unknown as GatewayClient;
+
+    await expect(createGatewayAgent({ client, name: "!!!" })).rejects.toThrow(
+      "Name produced an empty folder name."
+    );
+    expect(client.call).toHaveBeenCalledTimes(1);
+    expect((client.call as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toBe("config.get");
   });
 
   it("returns current settings when no heartbeat override exists to remove", async () => {

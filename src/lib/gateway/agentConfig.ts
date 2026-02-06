@@ -5,7 +5,6 @@ import {
   writeConfigAgentList,
   type ConfigAgentEntry,
 } from "@/lib/agents/configList";
-import { slugifyName } from "@/lib/ids/slugify";
 
 export type AgentHeartbeatActiveHours = {
   start: string;
@@ -58,6 +57,18 @@ const DEFAULT_ACK_MAX_CHARS = 300;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value && typeof value === "object" && !Array.isArray(value));
+
+const slugifyName = (name: string): string => {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!slug) {
+    throw new Error("Name produced an empty folder name.");
+  }
+  return slug;
+};
 
 const coerceString = (value: unknown) => (typeof value === "string" ? value : undefined);
 const coerceBoolean = (value: unknown) =>
