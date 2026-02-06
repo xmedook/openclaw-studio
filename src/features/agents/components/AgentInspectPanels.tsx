@@ -7,7 +7,7 @@ import remarkGfm from "remark-gfm";
 
 import type { AgentState } from "@/features/agents/state/store";
 import { useAgentFilesEditor } from "@/features/agents/state/useAgentFilesEditor";
-import type { CronJobSummary } from "@/lib/cron/types";
+import { formatCronPayload, formatCronSchedule, type CronJobSummary } from "@/lib/cron/types";
 import type { GatewayClient } from "@/lib/gateway/GatewayClient";
 import type { AgentHeartbeatSummary } from "@/lib/gateway/agentConfig";
 import {
@@ -74,28 +74,6 @@ type AgentSettingsPanelProps = {
   heartbeatDeleteBusyId?: string | null;
   onRunHeartbeat?: (heartbeatId: string) => Promise<void> | void;
   onDeleteHeartbeat?: (heartbeatId: string) => Promise<void> | void;
-};
-
-const formatEveryMs = (everyMs: number) => {
-  if (everyMs % 3600000 === 0) return `Every ${everyMs / 3600000}h`;
-  if (everyMs % 60000 === 0) return `Every ${everyMs / 60000}m`;
-  if (everyMs % 1000 === 0) return `Every ${everyMs / 1000}s`;
-  return `Every ${everyMs}ms`;
-};
-
-const formatCronSchedule = (schedule: CronJobSummary["schedule"]) => {
-  if (schedule.kind === "every") return formatEveryMs(schedule.everyMs);
-  if (schedule.kind === "cron") {
-    return schedule.tz ? `Cron: ${schedule.expr} (${schedule.tz})` : `Cron: ${schedule.expr}`;
-  }
-  const date = new Date(schedule.at);
-  if (Number.isNaN(date.getTime())) return `At: ${schedule.at}`;
-  return `At: ${date.toLocaleString()}`;
-};
-
-const formatCronPayload = (payload: CronJobSummary["payload"]) => {
-  if (payload.kind === "systemEvent") return payload.text;
-  return payload.message;
 };
 
 const formatHeartbeatSchedule = (heartbeat: AgentHeartbeatSummary) =>

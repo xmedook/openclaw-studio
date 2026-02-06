@@ -59,6 +59,7 @@ import type { AgentStoreSeed, AgentState } from "@/features/agents/state/store";
 import {
   type CronJobSummary,
   filterCronJobsForAgent,
+  formatCronJobDisplay,
   listCronJobs,
   removeCronJob,
   removeCronJobsForAgent,
@@ -169,38 +170,6 @@ const resolveSpecialUpdateKind = (message: string) => {
   if (heartbeatIndex === -1) return "cron";
   if (cronIndex === -1) return "heartbeat";
   return cronIndex > heartbeatIndex ? "cron" : "heartbeat";
-};
-
-const formatEveryMs = (everyMs: number) => {
-  if (everyMs % 3600000 === 0) {
-    return `${everyMs / 3600000}h`;
-  }
-  if (everyMs % 60000 === 0) {
-    return `${everyMs / 60000}m`;
-  }
-  if (everyMs % 1000 === 0) {
-    return `${everyMs / 1000}s`;
-  }
-  return `${everyMs}ms`;
-};
-
-const formatCronSchedule = (schedule: CronJobSummary["schedule"]) => {
-  if (schedule.kind === "every") {
-    return `Every ${formatEveryMs(schedule.everyMs)}`;
-  }
-  if (schedule.kind === "cron") {
-    return schedule.tz ? `Cron: ${schedule.expr} (${schedule.tz})` : `Cron: ${schedule.expr}`;
-  }
-  const atDate = new Date(schedule.at);
-  if (Number.isNaN(atDate.getTime())) return `At: ${schedule.at}`;
-  return `At: ${atDate.toLocaleString()}`;
-};
-
-const buildCronDisplay = (job: CronJobSummary) => {
-  const payloadText =
-    job.payload.kind === "systemEvent" ? job.payload.text : job.payload.message;
-  const lines = [job.name, formatCronSchedule(job.schedule), payloadText].filter(Boolean);
-  return lines.join("\n");
 };
 
 const sortCronJobsByUpdatedAt = (jobs: CronJobSummary[]) =>
@@ -603,7 +572,7 @@ const AgentStudioPage = () => {
         }
         const cronResult = await listCronJobs(client, { includeDisabled: true });
         const job = resolveCronJobForAgent(cronResult.jobs, agent);
-        const content = job ? buildCronDisplay(job) : "";
+        const content = job ? formatCronJobDisplay(job) : "";
         dispatch({
           type: "updateAgent",
           agentId: agent.agentId,
