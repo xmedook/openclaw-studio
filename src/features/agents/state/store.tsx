@@ -87,7 +87,6 @@ type Action =
   | { type: "setLoading"; loading: boolean }
   | { type: "updateAgent"; agentId: string; patch: Partial<AgentState> }
   | { type: "appendOutput"; agentId: string; line: string }
-  | { type: "setStream"; agentId: string; value: string | null }
   | { type: "markActivity"; agentId: string; at?: number }
   | { type: "selectAgent"; agentId: string | null };
 
@@ -171,15 +170,6 @@ const reducer = (state: AgentStoreState, action: Action): AgentStoreState => {
         agents: state.agents.map((agent) =>
           agent.agentId === action.agentId
             ? { ...agent, outputLines: [...agent.outputLines, action.line] }
-            : agent
-        ),
-      };
-    case "setStream":
-      return {
-        ...state,
-        agents: state.agents.map((agent) =>
-          agent.agentId === action.agentId
-            ? { ...agent, streamText: action.value }
             : agent
         ),
       };

@@ -25,6 +25,7 @@ import {
 } from "@/lib/text/message-extract";
 import { useGatewayConnection } from "@/lib/gateway/useGatewayConnection";
 import type { EventFrame } from "@/lib/gateway/frames";
+import { createRafBatcher } from "@/lib/dom/rafBatcher";
 import {
   buildGatewayModelChoices,
   type GatewayModelChoice,
@@ -314,6 +315,10 @@ const AgentStudioPage = () => {
   const assistantStreamByRunRef = useRef<Map<string, string>>(new Map());
   const pendingDraftValuesRef = useRef<Map<string, string>>(new Map());
   const pendingDraftTimersRef = useRef<Map<string, number>>(new Map());
+  const pendingLivePatchesRef = useRef<Map<string, Partial<AgentState>>>(new Map());
+  const flushLivePatchesRef = useRef<() => void>(() => {});
+  const livePatchBatcherRef = useRef(createRafBatcher(() => flushLivePatchesRef.current()));
+  const lastActivityMarkRef = useRef<Map<string, number>>(new Map());
 
   const agents = state.agents;
   const selectedAgent = useMemo(() => getSelectedAgent(state), [state]);
@@ -392,6 +397,45 @@ const AgentStudioPage = () => {
       values.clear();
     };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      livePatchBatcherRef.current.cancel();
+      pendingLivePatchesRef.current.clear();
+      lastActivityMarkRef.current.clear();
+    };
+  }, []);
+
+  const flushPendingLivePatches = useCallback(() => {
+    const pending = pendingLivePatchesRef.current;
+    if (pending.size === 0) return;
+    pendingLivePatchesRef.current = new Map();
+    for (const [agentId, patch] of pending) {
+      dispatch({ type: "updateAgent", agentId, patch });
+    }
+  }, [dispatch]);
+
+  useEffect(() => {
+    flushLivePatchesRef.current = flushPendingLivePatches;
+  }, [flushPendingLivePatches]);
+
+  const queueLivePatch = useCallback((agentId: string, patch: Partial<AgentState>) => {
+    const key = agentId.trim();
+    if (!key) return;
+    const existing = pendingLivePatchesRef.current.get(key);
+    pendingLivePatchesRef.current.set(key, existing ? { ...existing, ...patch } : patch);
+    livePatchBatcherRef.current.schedule();
+  }, []);
+
+  const markActivityThrottled = useCallback(
+    (agentId: string, at: number = Date.now()) => {
+      const lastAt = lastActivityMarkRef.current.get(agentId) ?? 0;
+      if (at - lastAt < 300) return;
+      lastActivityMarkRef.current.set(agentId, at);
+      dispatch({ type: "markActivity", agentId, at });
+    },
+    [dispatch]
+  );
 
   const enqueueConfigMutation = useCallback(
     (params: {
@@ -1747,10 +1791,7 @@ const AgentStudioPage = () => {
         if (role === "user" || role === "system") {
           return;
         }
-        dispatch({
-          type: "markActivity",
-          agentId,
-        });
+        markActivityThrottled(agentId);
         const nextTextRaw = extractText(payload.message);
         const nextText = nextTextRaw ? stripUiMetadata(nextTextRaw) : null;
         const nextThinking = extractThinking(payload.message ?? payload);
@@ -1761,24 +1802,17 @@ const AgentStudioPage = () => {
             return;
           }
           appendUniqueToolLines(agentId, payload.runId ?? null, toolLines);
+          const patch: Partial<AgentState> = {};
           if (nextThinking) {
-            dispatch({
-              type: "updateAgent",
-              agentId,
-              patch: { thinkingTrace: nextThinking, status: "running" },
-            });
+            patch.thinkingTrace = nextThinking;
+            patch.status = "running";
           }
           if (typeof nextText === "string") {
-            dispatch({
-              type: "setStream",
-              agentId,
-              value: nextText,
-            });
-            dispatch({
-              type: "updateAgent",
-              agentId,
-              patch: { status: "running" },
-            });
+            patch.streamText = nextText;
+            patch.status = "running";
+          }
+          if (Object.keys(patch).length > 0) {
+            queueLivePatch(agentId, patch);
           }
           return;
         }
@@ -1889,10 +1923,7 @@ const AgentStudioPage = () => {
       if (!match) return;
       const agent = state.agents.find((entry) => entry.agentId === match);
       if (!agent) return;
-      dispatch({
-        type: "markActivity",
-        agentId: match,
-      });
+      markActivityThrottled(match);
       const stream = typeof payload.stream === "string" ? payload.stream : "";
       const data =
         payload.data && typeof payload.data === "object"
@@ -1902,16 +1933,12 @@ const AgentStudioPage = () => {
       if (isReasoningRuntimeAgentStream(stream)) {
         const liveThinking = resolveThinkingFromAgentStream(data, "");
         if (liveThinking) {
-          dispatch({
-            type: "updateAgent",
-            agentId: match,
-            patch: {
-              status: "running",
-              runId: payload.runId,
-              sessionCreated: true,
-              lastActivityAt: Date.now(),
-              thinkingTrace: liveThinking,
-            },
+          queueLivePatch(match, {
+            status: "running",
+            runId: payload.runId,
+            sessionCreated: true,
+            lastActivityAt: Date.now(),
+            thinkingTrace: liveThinking,
           });
         }
         return;
@@ -1940,11 +1967,6 @@ const AgentStudioPage = () => {
         if (liveThinking) {
           patch.thinkingTrace = liveThinking;
         }
-        dispatch({
-          type: "updateAgent",
-          agentId: match,
-          patch,
-        });
         if (mergedRaw && (!rawText || !isUiMetadataPrefix(rawText.trim()))) {
           const visibleText = extractText({ role: "assistant", content: mergedRaw }) ?? mergedRaw;
           const cleaned = stripUiMetadata(visibleText);
@@ -1957,13 +1979,10 @@ const AgentStudioPage = () => {
               currentStreamText: agent.streamText ?? null,
             })
           ) {
-            dispatch({
-              type: "setStream",
-              agentId: match,
-              value: cleaned,
-            });
+            patch.streamText = cleaned;
           }
         }
+        queueLivePatch(match, patch);
         return;
       }
 
