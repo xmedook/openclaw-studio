@@ -5,6 +5,7 @@ import {
   isAgentFileName,
   type AgentFileName,
 } from "@/lib/agents/agentFiles";
+import { readGatewayAgentFile, writeGatewayAgentFile } from "@/lib/gateway/agentFiles";
 import type { GatewayClient } from "@/lib/gateway/GatewayClient";
 
 type AgentFilesState = ReturnType<typeof createAgentFilesState>;
@@ -19,10 +20,6 @@ type UseAgentFilesEditorResult = {
   setAgentFileContent: (value: string) => void;
   handleAgentFileTabChange: (nextTab: AgentFileName) => Promise<void>;
   saveAgentFiles: () => Promise<boolean>;
-};
-
-type AgentsFilesGetResponse = {
-  file?: { name?: unknown; missing?: unknown; content?: unknown };
 };
 
 export const useAgentFilesEditor = (params: {
@@ -54,22 +51,8 @@ export const useAgentFilesEditor = (params: {
       }
       const results = await Promise.all(
         AGENT_FILE_NAMES.map(async (name) => {
-          const response = await client.call<AgentsFilesGetResponse>("agents.files.get", {
-            agentId: trimmedAgentId,
-            name,
-          });
-          const file = response?.file;
-          const fileRecord =
-            file && typeof file === "object" ? (file as Record<string, unknown>) : null;
-          const missing = fileRecord?.missing === true;
-          const content =
-            fileRecord && typeof fileRecord.content === "string"
-              ? fileRecord.content
-              : "";
-          if (missing) {
-            return { name, content: "", exists: false };
-          }
-          return { name, content, exists: true };
+          const file = await readGatewayAgentFile({ client, agentId: trimmedAgentId, name });
+          return { name, content: file.content, exists: file.exists };
         })
       );
       const nextState = createAgentFilesState();
@@ -105,7 +88,8 @@ export const useAgentFilesEditor = (params: {
       }
       await Promise.all(
         AGENT_FILE_NAMES.map(async (name) => {
-          await client.call("agents.files.set", {
+          await writeGatewayAgentFile({
+            client,
             agentId: trimmedAgentId,
             name,
             content: agentFiles[name].content,
