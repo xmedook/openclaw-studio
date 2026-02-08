@@ -13,31 +13,48 @@ const setupAndImportHook = async (gatewayUrl: string | null) => {
   }
 
   vi.resetModules();
+  vi.spyOn(console, "info").mockImplementation(() => {});
 
-  vi.doMock("../../src/lib/gateway/GatewayClient", () => {
-    class GatewayResponseError extends Error {
-      code: string;
+  vi.doMock("../../src/lib/gateway/openclaw/GatewayBrowserClient", () => {
+    class GatewayBrowserClient {
+      connected = false;
+      private opts: {
+        onHello?: (hello: unknown) => void;
+        onEvent?: (event: unknown) => void;
+        onClose?: (info: { code: number; reason: string }) => void;
+        onGap?: (info: { expected: number; received: number }) => void;
+      };
 
-      constructor(payload: { code: string; message: string }) {
-        super(payload.message);
-        this.name = "GatewayResponseError";
-        this.code = payload.code;
+      constructor(opts: Record<string, unknown>) {
+        this.opts = {
+          onHello: typeof opts.onHello === "function" ? (opts.onHello as (hello: unknown) => void) : undefined,
+          onEvent: typeof opts.onEvent === "function" ? (opts.onEvent as (event: unknown) => void) : undefined,
+          onClose: typeof opts.onClose === "function" ? (opts.onClose as (info: { code: number; reason: string }) => void) : undefined,
+          onGap: typeof opts.onGap === "function" ? (opts.onGap as (info: { expected: number; received: number }) => void) : undefined,
+        };
+      }
+
+      start() {
+        this.connected = true;
+        this.opts.onHello?.({ type: "hello-ok", protocol: 1 });
+      }
+
+      stop() {
+        this.connected = false;
+        this.opts.onClose?.({ code: 1000, reason: "stopped" });
+      }
+
+      async request<T = unknown>(method: string, params: unknown): Promise<T> {
+        void method;
+        void params;
+        return {} as T;
       }
     }
 
-    class GatewayClient {
-      async connect() {}
-      disconnect() {}
-      onStatus(handler: (status: "disconnected" | "connecting" | "connected") => void) {
-        handler("disconnected");
-        return () => {};
-      }
-    }
-
-    return { GatewayClient, GatewayResponseError };
+    return { GatewayBrowserClient };
   });
 
-  const mod = await import("@/lib/gateway/useGatewayConnection");
+  const mod = await import("@/lib/gateway/GatewayClient");
   return mod.useGatewayConnection as (settingsCoordinator: {
     loadSettings: () => Promise<unknown>;
     schedulePatch: (patch: unknown) => void;
@@ -50,7 +67,7 @@ describe("useGatewayConnection", () => {
     cleanup();
     process.env = { ...ORIGINAL_ENV };
     vi.resetModules();
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
   });
 
   it("defaults_to_env_url_when_set", async () => {

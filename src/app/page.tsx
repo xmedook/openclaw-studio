@@ -23,7 +23,7 @@ import {
   extractToolLines,
   formatToolCallMarkdown,
 } from "@/lib/text/message-extract";
-import { useGatewayConnection } from "@/lib/gateway/useGatewayConnection";
+import { useGatewayConnection } from "@/lib/gateway/GatewayClient";
 import { createRafBatcher } from "@/lib/dom";
 import {
   buildGatewayModelChoices,
