@@ -73,11 +73,10 @@ export const runSshJson = (params: {
   input?: string;
   fallbackMessage?: string;
 }): unknown => {
-  const result = childProcess.spawnSync(
-    "ssh",
-    ["-o", "BatchMode=yes", params.sshTarget, ...params.argv],
-    { encoding: "utf8", input: params.input }
-  );
+  const result = childProcess.spawnSync("ssh", ["-o", "BatchMode=yes", params.sshTarget, ...params.argv], {
+    encoding: "utf8",
+    input: params.input,
+  });
   if (result.error) {
     throw new Error(`Failed to execute ssh: ${result.error.message}`);
   }
