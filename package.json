@@ -11,6 +11,7 @@
     "cleanup:ux-artifacts": "node scripts/cleanup-ux-artifacts.mjs",
     "sync:gateway-client": "node scripts/sync-openclaw-gateway-client.ts",
     "migrate:architecture": "node scripts/migrate-architecture.ts",
+    "studio:setup": "node scripts/studio-setup.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "e2e": "playwright test"
