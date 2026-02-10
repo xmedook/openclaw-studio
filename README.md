@@ -4,7 +4,11 @@
 
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/VEpdKJ9e)
 
-OpenClaw Studio is a Next.js UI for managing OpenClaw agents via the OpenClaw Gateway (WebSocket).
+Mission control for AI agents that actually do work.
+
+OpenClaw Studio is the coordination layer that turns LLMs from "sometimes helpful" into compounding leverage. Orchestrate many scoped agents shipping PRs, running refactors, reviewing code, and doing research while you stay the intentional bottleneck. No chat wrappers. No autonomous black boxes. Just structured coordination of real side effects, with guardrails you'd bet your reputation on.
+
+One strong human + many scoped agents + explicit coordination primitives. That's the thesis. Studio is how you prove it.
 
 ## Requirements
 
