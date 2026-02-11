@@ -400,7 +400,7 @@ export const useGatewayConnection = (
         gatewayUrl: resolveStudioProxyGatewayUrl(),
         token,
         authScopeKey: gatewayUrl,
-        clientName: "openclaw-studio",
+        clientName: "openclaw-control-ui",
         disableDeviceAuth: true,
       });
       await ensureGatewayReloadModeHotForLocalStudio({
