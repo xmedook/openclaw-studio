@@ -14,7 +14,7 @@ This plan focuses on hardening and merge-risk reduction for the already-implemen
 
 - [x] (2026-02-12 11:15Z) Captured hardening scope from review findings and product constraints.
 - [x] (2026-02-12 19:15Z) Milestone 1 complete: converted guided tool policy output to additive `alsoAllow` behavior, added gateway override conflict guard (`allow` + `alsoAllow`), and verified with targeted tests.
-- [ ] Milestone 2: Add deterministic expiry pruning for pending exec approvals so stale approval cards cannot persist.
+- [x] (2026-02-12 19:17Z) Milestone 2 complete: added pure pending-approval store helpers, expiry-pruning timer scheduling, and verified stale approvals are pruned via unit tests.
 - [ ] Milestone 3: Add durable pending guided-setup recovery (including reload/timeout) and prevent duplicate-agent retries after partial failures.
 - [ ] Milestone 4: Run full validation, update docs, and create a final pre-merge risk summary.
 
