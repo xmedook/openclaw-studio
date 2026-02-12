@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   compileGuidedAgentCreation,
   createDefaultGuidedDraft,
@@ -103,14 +103,6 @@ export const AgentCreateModal = ({
     createDefaultGuidedDraft
   );
   const [showAdvanced, setShowAdvanced] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    setStepIndex(0);
-    setShowAdvanced(false);
-    setName(suggestedName);
-    setGuidedDraft(createDefaultGuidedDraft());
-  }, [open, suggestedName]);
 
   const compiledGuided = useMemo(
     () => compileGuidedAgentCreation({ name, draft: guidedDraft }),

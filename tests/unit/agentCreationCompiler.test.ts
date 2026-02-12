@@ -4,13 +4,14 @@ import {
   createDefaultGuidedDraft,
   resolveGuidedControlsForPreset,
 } from "@/features/agents/creation/compiler";
+import type { GuidedAgentCreationDraft } from "@/features/agents/creation/types";
 
-const createDraft = () => {
+const createDraft = (): GuidedAgentCreationDraft => {
   const draft = createDefaultGuidedDraft();
   return {
     ...draft,
-    starterKit: "engineer" as const,
-    controlLevel: "balanced" as const,
+    starterKit: "engineer",
+    controlLevel: "balanced",
     firstTask: "Refactor React components and open small diffs.",
     customInstructions: "Prefer minimal, test-backed diffs.",
     userProfile: "Product engineer who prefers concise summaries.",
