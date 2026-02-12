@@ -25,7 +25,7 @@ const resolveReloadModeFromConfig = (config: unknown): string | null => {
 };
 
 export const shouldAwaitDisconnectRestartForReloadMode = (mode: string | null): boolean =>
-  mode !== "hot" && mode !== "off";
+  mode !== "hot" && mode !== "off" && mode !== "hybrid";
 
 export async function shouldAwaitDisconnectRestartForRemoteMutation(params: {
   client: GatewayClient;
