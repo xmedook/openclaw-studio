@@ -55,6 +55,23 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 export type ConfigAgentEntry = Record<string, unknown> & { id: string };
 
+export type GatewayAgentSandboxOverrides = {
+  mode?: "off" | "non-main" | "all";
+  workspaceAccess?: "none" | "ro" | "rw";
+};
+
+export type GatewayAgentToolsOverrides = {
+  profile?: "minimal" | "coding" | "messaging" | "full";
+  allow?: string[];
+  alsoAllow?: string[];
+  deny?: string[];
+};
+
+export type GatewayAgentOverrides = {
+  sandbox?: GatewayAgentSandboxOverrides;
+  tools?: GatewayAgentToolsOverrides;
+};
+
 export const readConfigAgentList = (
   config: Record<string, unknown> | undefined
 ): ConfigAgentEntry[] => {
@@ -445,4 +462,84 @@ export const removeGatewayHeartbeatOverride = async (params: {
     exists: snapshot.exists,
   });
   return resolveHeartbeatSettings(nextConfig, params.agentId);
+};
+
+const normalizeToolList = (values: string[] | undefined): string[] | undefined => {
+  if (!values) return undefined;
+  const next = values
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  return Array.from(new Set(next));
+};
+
+export const updateGatewayAgentOverrides = async (params: {
+  client: GatewayClient;
+  agentId: string;
+  overrides: GatewayAgentOverrides;
+}): Promise<void> => {
+  const agentId = params.agentId.trim();
+  if (!agentId) {
+    throw new Error("Agent id is required.");
+  }
+  if (params.overrides.tools?.allow !== undefined && params.overrides.tools?.alsoAllow !== undefined) {
+    throw new Error("Agent tools overrides cannot set both allow and alsoAllow.");
+  }
+  const hasSandboxOverrides =
+    Boolean(params.overrides.sandbox?.mode) || Boolean(params.overrides.sandbox?.workspaceAccess);
+  const hasToolsOverrides =
+    Boolean(params.overrides.tools?.profile) ||
+    params.overrides.tools?.allow !== undefined ||
+    params.overrides.tools?.alsoAllow !== undefined ||
+    params.overrides.tools?.deny !== undefined;
+  if (!hasSandboxOverrides && !hasToolsOverrides) {
+    return;
+  }
+
+  const snapshot = await params.client.call<GatewayConfigSnapshot>("config.get", {});
+  const baseConfig = isRecord(snapshot.config) ? snapshot.config : {};
+  const list = readConfigAgentList(baseConfig);
+  const { list: nextList } = upsertConfigAgentEntry(list, agentId, (entry) => {
+    const next: ConfigAgentEntry = { ...entry, id: agentId };
+
+    if (hasSandboxOverrides) {
+      const currentSandbox = isRecord(next.sandbox) ? { ...next.sandbox } : {};
+      if (params.overrides.sandbox?.mode) {
+        currentSandbox.mode = params.overrides.sandbox.mode;
+      }
+      if (params.overrides.sandbox?.workspaceAccess) {
+        currentSandbox.workspaceAccess = params.overrides.sandbox.workspaceAccess;
+      }
+      next.sandbox = currentSandbox;
+    }
+
+    if (hasToolsOverrides) {
+      const currentTools = isRecord(next.tools) ? { ...next.tools } : {};
+      if (params.overrides.tools?.profile) {
+        currentTools.profile = params.overrides.tools.profile;
+      }
+      const allow = normalizeToolList(params.overrides.tools?.allow);
+      if (allow !== undefined) {
+        currentTools.allow = allow;
+      }
+      const alsoAllow = normalizeToolList(params.overrides.tools?.alsoAllow);
+      if (alsoAllow !== undefined) {
+        currentTools.alsoAllow = alsoAllow;
+      }
+      const deny = normalizeToolList(params.overrides.tools?.deny);
+      if (deny !== undefined) {
+        currentTools.deny = deny;
+      }
+      next.tools = currentTools;
+    }
+
+    return next;
+  });
+
+  const nextConfig = writeConfigAgentList(baseConfig, nextList);
+  await applyGatewayConfigSet({
+    client: params.client,
+    nextConfig,
+    baseHash: snapshot.hash ?? undefined,
+    exists: snapshot.exists,
+  });
 };
