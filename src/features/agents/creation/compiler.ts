@@ -244,7 +244,7 @@ const CONTROL_DEFAULTS: Record<AgentControlLevel, ControlDefaults> = {
   autopilot: {
     execAutonomy: "auto",
     fileEditAutonomy: "auto-edit",
-    sandboxMode: "off",
+    sandboxMode: "non-main",
     workspaceAccess: "rw",
     approvalSecurity: "full",
     approvalAsk: "off",
