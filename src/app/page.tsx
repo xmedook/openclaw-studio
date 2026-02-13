@@ -118,18 +118,16 @@ import { randomUUID } from "@/lib/uuid";
 import type { ExecApprovalDecision, PendingExecApproval } from "@/features/agents/approvals/types";
 import {
   resolveExecApprovalEventEffects,
-  shouldTreatExecApprovalResolveErrorAsUnknownId,
 } from "@/features/agents/approvals/execApprovalLifecycleWorkflow";
+import { resolveExecApprovalViaStudio } from "@/features/agents/approvals/execApprovalResolveOperation";
 import {
   mergePendingApprovalsForFocusedAgent,
   nextPendingApprovalPruneDelayMs,
   pruneExpiredPendingApprovals,
   pruneExpiredPendingApprovalsMap,
-  removePendingApprovalEverywhere,
   removePendingApprovalById,
   removePendingApprovalByIdMap,
   upsertPendingApproval,
-  updatePendingApprovalById,
 } from "@/features/agents/approvals/pendingStore";
 import {
   TRANSCRIPT_V2_ENABLED,
@@ -1962,101 +1960,23 @@ const AgentStudioPage = () => {
 
   const handleResolveExecApproval = useCallback(
     async (approvalId: string, decision: ExecApprovalDecision) => {
-      const id = approvalId.trim();
-      if (!id) return;
-      const resolvePendingApproval = (approvalId: string): PendingExecApproval | null => {
-        for (const approvals of Object.values(pendingExecApprovalsByAgentId)) {
-          const found = approvals.find((approval) => approval.id === approvalId);
-          if (found) return found;
-        }
-        return unscopedPendingExecApprovals.find((approval) => approval.id === approvalId) ?? null;
-      };
-      const resolveApprovalTargetAgentId = (approval: PendingExecApproval | null): string | null => {
-        if (!approval) return null;
-        const scopedAgentId = approval.agentId?.trim() ?? "";
-        if (scopedAgentId) return scopedAgentId;
-        const scopedSessionKey = approval.sessionKey?.trim() ?? "";
-        if (!scopedSessionKey) return null;
-        const matched = stateRef.current.agents.find(
-          (agent) => agent.sessionKey.trim() === scopedSessionKey
-        );
-        return matched?.agentId ?? null;
-      };
-      const approval = resolvePendingApproval(id);
-      const removeLocalApproval = (approvalId: string) => {
-        setPendingExecApprovalsByAgentId((current) =>
-          removePendingApprovalEverywhere({
-            approvalsByAgentId: current,
-            unscopedApprovals: [],
-            approvalId,
-          }).approvalsByAgentId
-        );
-        setUnscopedPendingExecApprovals((current) =>
-          removePendingApprovalEverywhere({
-            approvalsByAgentId: {},
-            unscopedApprovals: current,
-            approvalId,
-          }).unscopedApprovals
-        );
-      };
-      const setLocalApprovalState = (resolving: boolean, error: string | null) => {
-        setPendingExecApprovalsByAgentId((current) => {
-          let changed = false;
-          const next: Record<string, PendingExecApproval[]> = {};
-          for (const [agentId, approvals] of Object.entries(current)) {
-            const updated = updatePendingApprovalById(approvals, id, (approval) => ({
-              ...approval,
-              resolving,
-              error,
-            }));
-            if (updated !== approvals) {
-              changed = true;
-            }
-            if (updated.length > 0) {
-              next[agentId] = updated;
-            }
-          }
-          return changed ? next : current;
-        });
-        setUnscopedPendingExecApprovals((current) =>
-          updatePendingApprovalById(current, id, (approval) => ({
-            ...approval,
-            resolving,
-            error,
-          }))
-        );
-      };
-      setLocalApprovalState(true, null);
-      try {
-        await client.call("exec.approval.resolve", { id, decision });
-        removeLocalApproval(id);
-        if (decision === "allow-once" || decision === "allow-always") {
-          const targetAgentId = resolveApprovalTargetAgentId(approval);
-          if (targetAgentId) {
-            void (async () => {
-              const latest = stateRef.current.agents.find((entry) => entry.agentId === targetAgentId);
-              const activeRunId = latest?.runId?.trim() ?? "";
-              if (activeRunId) {
-                try {
-                  await client.call("agent.wait", { runId: activeRunId, timeoutMs: 15_000 });
-                } catch (waitError) {
-                  if (!isGatewayDisconnectLikeError(waitError)) {
-                    console.warn("Failed to wait for run after exec approval resolve.", waitError);
-                  }
-                }
-              }
-              await loadAgentHistory(targetAgentId);
-            })();
-          }
-        }
-      } catch (err) {
-        if (shouldTreatExecApprovalResolveErrorAsUnknownId(err)) {
-          removeLocalApproval(id);
-          return;
-        }
-        const message = err instanceof Error ? err.message : "Failed to resolve exec approval.";
-        setLocalApprovalState(false, message);
-      }
+      await resolveExecApprovalViaStudio({
+        client,
+        approvalId,
+        decision,
+        getAgents: () => stateRef.current.agents,
+        getLatestAgent: (agentId) =>
+          stateRef.current.agents.find((entry) => entry.agentId === agentId) ?? null,
+        getPendingState: () => ({
+          approvalsByAgentId: pendingExecApprovalsByAgentId,
+          unscopedApprovals: unscopedPendingExecApprovals,
+        }),
+        setPendingExecApprovalsByAgentId,
+        setUnscopedPendingExecApprovals,
+        requestHistoryRefresh: (agentId) => loadAgentHistory(agentId),
+        isDisconnectLikeError: isGatewayDisconnectLikeError,
+        logWarn: (message, error) => console.warn(message, error),
+      });
     },
     [client, loadAgentHistory, pendingExecApprovalsByAgentId, unscopedPendingExecApprovals]
   );
