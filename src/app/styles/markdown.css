@@ -120,6 +120,14 @@
   text-underline-offset: 2px;
 }
 
+.agent-markdown img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 0.6rem;
+  border: 1px solid var(--border);
+}
+
 .dark .agent-markdown code {
   background: var(--surface-3);
   border-color: rgb(255 255 255 / 0.08);
