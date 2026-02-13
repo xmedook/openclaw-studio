@@ -15,6 +15,7 @@ import remarkGfm from "remark-gfm";
 import { ChevronRight, Clock, Cog, Copy, Shuffle } from "lucide-react";
 import type { GatewayModelChoice } from "@/lib/gateway/models";
 import { isTraceMarkdown } from "@/lib/text/message-extract";
+import { rewriteMediaLinesToMarkdown } from "@/lib/text/media-markdown";
 import { isNearBottom } from "@/lib/dom";
 import { AgentAvatar } from "./AgentAvatar";
 import type {
@@ -359,7 +360,9 @@ const AssistantMessageCard = memo(function AssistantMessageCard({
                 <>
                   {!artifactOnly && intro ? (
                     <div className="agent-markdown text-foreground">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{intro}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {rewriteMediaLinesToMarkdown(intro)}
+                      </ReactMarkdown>
                     </div>
                   ) : null}
                   <div className="group rounded-[8px] border border-border/70 bg-surface-3 px-3 py-2">
@@ -383,13 +386,17 @@ const AssistantMessageCard = memo(function AssistantMessageCard({
                       </button>
                     </div>
                     <div className="agent-markdown text-foreground">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{artifact}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {rewriteMediaLinesToMarkdown(artifact)}
+                      </ReactMarkdown>
                     </div>
                   </div>
                 </>
               ) : (
                 <div className="agent-markdown text-foreground">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{contentText}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {rewriteMediaLinesToMarkdown(contentText)}
+                  </ReactMarkdown>
                 </div>
               )
             ) : null}
@@ -490,7 +497,9 @@ const AgentChatFinalItems = memo(function AgentChatFinalItems({
                 </summary>
                 {body ? (
                   <div className="agent-markdown mt-1 text-foreground">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {rewriteMediaLinesToMarkdown(body)}
+                    </ReactMarkdown>
                   </div>
                 ) : null}
             </details>
