@@ -146,21 +146,9 @@ describe("historyLifecycleWorkflow", () => {
       kind: "drop",
       reason: "session-epoch-changed",
     });
-
-    expect(
-      resolveHistoryResponseDisposition({
-        latestAgent: createAgent({ transcriptRevision: 9, outputLines: ["x"] }),
-        expectedSessionKey: "agent:agent-1:main",
-        requestEpoch: 0,
-        requestRevision: 8,
-      })
-    ).toEqual({
-      kind: "drop",
-      reason: "transcript-revision-changed",
-    });
   });
 
-  it("returns metadata-only disposition while run is still active", () => {
+  it("applies history even while run is still active", () => {
     expect(
       resolveHistoryResponseDisposition({
         latestAgent: createAgent({
@@ -173,7 +161,7 @@ describe("historyLifecycleWorkflow", () => {
         requestRevision: 9,
       })
     ).toEqual({
-      kind: "metadata-only",
+      kind: "apply",
     });
 
     expect(

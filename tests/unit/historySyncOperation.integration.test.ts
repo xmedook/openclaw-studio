@@ -19,7 +19,7 @@ describe("historySyncOperation integration", () => {
       },
       {
         kind: "logMetric",
-        metric: "history_apply_skipped_running",
+        metric: "history_sync_test_metric",
         meta: { agentId: "agent-1", requestId: "req-1", runId: "run-1" },
       },
       {
@@ -51,7 +51,7 @@ describe("historySyncOperation integration", () => {
       patch: { historyLoadedAt: 1234 },
     });
     expect(logMetric).toHaveBeenCalledTimes(1);
-    expect(logMetric).toHaveBeenCalledWith("history_apply_skipped_running", {
+    expect(logMetric).toHaveBeenCalledWith("history_sync_test_metric", {
       agentId: "agent-1",
       requestId: "req-1",
       runId: "run-1",

@@ -84,23 +84,7 @@ const runPageHistoryAdapter = (params: {
   }
 
   if (disposition.kind === "drop") {
-    if (disposition.reason === "transcript-revision-changed") {
-      const patch = metadataPatch;
-      return {
-        disposition: "drop" as const,
-        patch,
-        next: { ...latest, ...patch },
-      };
-    }
     return { disposition: "drop" as const, patch: null, next: latest };
-  }
-
-  if (disposition.kind === "metadata-only") {
-    return {
-      disposition: "metadata-only" as const,
-      patch: metadataPatch,
-      next: { ...latest, ...metadataPatch },
-    };
   }
 
   const applyPatch = buildHistorySyncPatch({
@@ -119,7 +103,7 @@ const runPageHistoryAdapter = (params: {
 };
 
 describe("historyLifecycleWorkflow integration", () => {
-  it("page adapter applies metadata-only patch when running run is still active", () => {
+  it("page adapter applies transcript patch even when running run is still active", () => {
     const latest = createAgent({
       status: "running",
       runId: "run-1",
@@ -133,9 +117,12 @@ describe("historyLifecycleWorkflow integration", () => {
       messages: [{ role: "assistant", content: "final" }],
     });
 
-    expect(result.disposition).toBe("metadata-only");
-    expect(result.next.outputLines).toEqual(["> user", "assistant draft"]);
+    expect(result.disposition).toBe("apply");
+    expect(result.next.outputLines).toEqual(["> user", "assistant draft", "final"]);
     expect(result.patch).toEqual({
+      outputLines: ["> user", "assistant draft", "final"],
+      lastResult: "final",
+      latestPreview: "final",
       historyLoadedAt: 1_234,
       historyFetchLimit: 200,
       historyFetchedCount: 1,
@@ -144,7 +131,7 @@ describe("historyLifecycleWorkflow integration", () => {
     });
   });
 
-  it("page adapter ignores stale response dispositions and preserves existing transcript", () => {
+  it("page adapter drops responses when session epoch changed and preserves existing transcript", () => {
     const requestAgent = createAgent({
       outputLines: ["> user", "assistant current"],
       transcriptRevision: 7,
@@ -152,6 +139,7 @@ describe("historyLifecycleWorkflow integration", () => {
     const latest = createAgent({
       outputLines: ["> user", "assistant current"],
       transcriptRevision: 8,
+      sessionEpoch: 1,
     });
 
     const result = runPageHistoryAdapter({
@@ -162,7 +150,7 @@ describe("historyLifecycleWorkflow integration", () => {
 
     expect(result.disposition).toBe("drop");
     expect(result.next.outputLines).toEqual(["> user", "assistant current"]);
-    expect(result.next.lastAppliedHistoryRequestId).toBe("req-1");
+    expect(result.patch).toBeNull();
   });
 
   it("page adapter applies transcript merge patch when workflow disposition is apply", () => {

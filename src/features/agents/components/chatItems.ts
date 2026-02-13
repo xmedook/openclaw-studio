@@ -286,10 +286,65 @@ export const buildAgentChatItems = ({
   return items;
 };
 
+const stripTrailingToolCallId = (
+  label: string
+): { toolLabel: string; toolCallId: string | null } => {
+  const trimmed = label.trim();
+  const match = trimmed.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+  if (!match) return { toolLabel: trimmed, toolCallId: null };
+  const toolLabel = (match[1] ?? "").trim();
+  const toolCallId = (match[2] ?? "").trim();
+  return { toolLabel: toolLabel || trimmed, toolCallId: toolCallId || null };
+};
+
+const toDisplayToolName = (label: string): string => {
+  const cleaned = label.trim();
+  if (!cleaned) return "tool";
+  const segments = cleaned.split(/[.:/]/).map((s) => s.trim()).filter(Boolean);
+  return segments[segments.length - 1] ?? cleaned;
+};
+
+const truncateInline = (value: string, maxChars: number): string => {
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  if (cleaned.length <= maxChars) return cleaned;
+  return `${cleaned.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+};
+
+const extractToolMetaLine = (body: string): string | null => {
+  const trimmed = body.trim();
+  if (!trimmed) return null;
+  const [firstLine] = trimmed.split(/\r?\n/, 1);
+  const meta = (firstLine ?? "").trim();
+  if (!meta) return null;
+  if (meta.startsWith("```")) return null;
+  return meta;
+};
+
+const extractToolArgSummary = (body: string): string | null => {
+  const matchers: Array<[RegExp, (m: RegExpMatchArray) => string | null]> = [
+    [/"command"\s*:\s*"([^"]+)"/, (m) => (m[1] ? `command: ${m[1]}` : null)],
+    [/"path"\s*:\s*"([^"]+)"/, (m) => (m[1] ? `path: ${m[1]}` : null)],
+    [/"url"\s*:\s*"([^"]+)"/, (m) => (m[1] ? `url: ${m[1]}` : null)],
+  ];
+  for (const [re, toSummary] of matchers) {
+    const m = body.match(re);
+    const summary = m ? toSummary(m) : null;
+    if (summary) return truncateInline(summary, 96);
+  }
+  return null;
+};
+
 export const summarizeToolLabel = (line: string): { summaryText: string; body: string } => {
   const parsed = parseToolMarkdown(line);
+  const { toolLabel } = stripTrailingToolCallId(parsed.label);
+  const toolName = toDisplayToolName(toolLabel);
   const summaryLabel = parsed.kind === "result" ? "Tool result" : "Tool call";
-  const summaryText = parsed.label ? `${summaryLabel}: ${parsed.label}` : summaryLabel;
+  const metaLine = parsed.kind === "result" ? extractToolMetaLine(parsed.body) : null;
+  const argSummary = parsed.kind === "call" ? extractToolArgSummary(parsed.body) : null;
+  const suffix = metaLine ?? argSummary;
+  const summaryText = suffix
+    ? `${summaryLabel}: ${toolName} · ${suffix}`
+    : `${summaryLabel}: ${toolName}`;
   return {
     summaryText,
     body: parsed.body,

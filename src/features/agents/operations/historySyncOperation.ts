@@ -133,26 +133,6 @@ export const runHistorySyncOperation = async (
 
     if (responseDisposition.kind === "drop") {
       const reason = responseDisposition.reason.replace(/-/g, "_");
-      if (responseDisposition.reason === "transcript-revision-changed") {
-        const latestRevision = latest?.transcriptRevision ?? latest?.outputLines.length;
-        commands.push({
-          kind: "logMetric",
-          metric: "history_response_dropped_stale",
-          meta: {
-            reason,
-            agentId: params.agentId,
-            requestId: requestIntent.requestId,
-            requestRevision: requestIntent.requestRevision,
-            latestRevision,
-          },
-        });
-        commands.push({
-          kind: "dispatchUpdateAgent",
-          agentId: params.agentId,
-          patch: metadataPatch,
-        });
-        return commands;
-      }
       commands.push({
         kind: "logMetric",
         metric: "history_response_dropped_stale",
@@ -161,24 +141,6 @@ export const runHistorySyncOperation = async (
           agentId: params.agentId,
           requestId: requestIntent.requestId,
         },
-      });
-      return commands;
-    }
-
-    if (responseDisposition.kind === "metadata-only") {
-      commands.push({
-        kind: "logMetric",
-        metric: "history_apply_skipped_running",
-        meta: {
-          agentId: params.agentId,
-          requestId: requestIntent.requestId,
-          runId: latest?.runId ?? null,
-        },
-      });
-      commands.push({
-        kind: "dispatchUpdateAgent",
-        agentId: params.agentId,
-        patch: metadataPatch,
       });
       return commands;
     }

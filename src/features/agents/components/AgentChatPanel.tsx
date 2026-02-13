@@ -517,7 +517,7 @@ const AgentChatFinalItems = memo(function AgentChatFinalItems({
                   {summaryText}
                 </summary>
                 {body ? (
-                  <div className="agent-markdown mt-1 text-foreground">
+                  <div className="agent-markdown agent-tool-markdown mt-1 text-foreground">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
                       {rewriteMediaLinesToMarkdown(body)}
                     </ReactMarkdown>

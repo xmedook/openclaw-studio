@@ -161,6 +161,7 @@ export function createGatewayRuntimeEventHandler(
   const thinkingStreamByRun = new Map<string, string>();
   const thinkingStartedAtByRun = new Map<string, number>();
   const toolLinesSeenByRun = new Map<string, Set<string>>();
+  const historyRefreshRequestedByRun = new Set<string>();
   const closedRunExpiresByRun = new Map<string, number>();
   const terminalChatRunSeen = new Set<string>();
   const thinkingDebugBySession = new Set<string>();
@@ -247,6 +248,7 @@ export function createGatewayRuntimeEventHandler(
     thinkingStreamByRun.delete(runId);
     thinkingStartedAtByRun.delete(runId);
     toolLinesSeenByRun.delete(runId);
+    historyRefreshRequestedByRun.delete(runId);
   };
 
   const markTerminalRunSeen = (runId: string) => {
@@ -369,6 +371,7 @@ export function createGatewayRuntimeEventHandler(
     assistantStreamByRun.clear();
     thinkingStreamByRun.clear();
     toolLinesSeenByRun.clear();
+    historyRefreshRequestedByRun.clear();
     closedRunExpiresByRun.clear();
     terminalChatRunSeen.clear();
     thinkingDebugBySession.clear();
@@ -810,6 +813,16 @@ export function createGatewayRuntimeEventHandler(
         timestampMs: now(),
         lines: extractToolLines(message),
       });
+
+      if (agent.showThinkingTraces && !historyRefreshRequestedByRun.has(payload.runId)) {
+        historyRefreshRequestedByRun.add(payload.runId);
+        deps.setTimeout(() => {
+          void deps.requestHistoryRefresh({
+            agentId: match,
+            reason: "chat-final-no-trace",
+          });
+        }, 750);
+      }
       return;
     }
 

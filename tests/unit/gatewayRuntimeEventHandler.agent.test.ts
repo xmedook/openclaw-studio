@@ -285,6 +285,67 @@ describe("gateway runtime event handler (agent)", () => {
     expect(toolLines[0]).toContain("myTool");
   });
 
+  it("requests history refresh once per run after first tool result when thinking traces enabled", () => {
+    const agents = [createAgent({ status: "running", runId: "run-5", runStartedAt: 900 })];
+    const requestHistoryRefresh = vi.fn(async () => {});
+    const handler = createGatewayRuntimeEventHandler({
+      getStatus: () => "connected",
+      getAgents: () => agents,
+      dispatch: vi.fn(),
+      queueLivePatch: vi.fn(),
+      clearPendingLivePatch: vi.fn(),
+      now: () => 1000,
+      loadSummarySnapshot: vi.fn(async () => {}),
+      requestHistoryRefresh,
+      refreshHeartbeatLatestUpdate: vi.fn(),
+      bumpHeartbeatTick: vi.fn(),
+      setTimeout: (fn) => {
+        fn();
+        return 1;
+      },
+      clearTimeout: vi.fn(),
+      isDisconnectLikeError: () => false,
+      logWarn: vi.fn(),
+      updateSpecialLatestUpdate: vi.fn(),
+    });
+
+    const toolResultEvent: EventFrame = {
+      type: "event",
+      event: "agent",
+      payload: {
+        runId: "run-5",
+        sessionKey: agents[0]!.sessionKey,
+        stream: "tool",
+        data: {
+          phase: "result",
+          name: "exec",
+          toolCallId: "tool-1",
+          result: { content: [{ type: "text", text: "ok" }] },
+        },
+      },
+    };
+
+    handler.handleEvent(toolResultEvent);
+    handler.handleEvent({
+      ...toolResultEvent,
+      payload: {
+        ...(toolResultEvent.payload as Record<string, unknown>),
+        data: {
+          phase: "result",
+          name: "exec",
+          toolCallId: "tool-2",
+          result: { content: [{ type: "text", text: "ok again" }] },
+        },
+      },
+    });
+
+    expect(requestHistoryRefresh).toHaveBeenCalledTimes(1);
+    expect(requestHistoryRefresh).toHaveBeenCalledWith({
+      agentId: "agent-1",
+      reason: "chat-final-no-trace",
+    });
+  });
+
   it("ignores stale assistant stream events for non-active runIds", () => {
     const agents = [createAgent({ status: "running", runId: "run-2", runStartedAt: 900 })];
     const queueLivePatch = vi.fn();

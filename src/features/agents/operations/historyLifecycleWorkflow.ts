@@ -18,10 +18,7 @@ export type HistoryRequestIntent =
 export type HistoryResponseDisposition =
   | {
       kind: "drop";
-      reason: "session-key-changed" | "session-epoch-changed" | "transcript-revision-changed";
-    }
-  | {
-      kind: "metadata-only";
+      reason: "session-key-changed" | "session-epoch-changed";
     }
   | {
       kind: "apply";
@@ -88,13 +85,6 @@ export const resolveHistoryResponseDisposition = (params: {
   }
   if ((latest.sessionEpoch ?? 0) !== params.requestEpoch) {
     return { kind: "drop", reason: "session-epoch-changed" };
-  }
-  if (latest.status === "running" && Boolean(latest.runId?.trim())) {
-    return { kind: "metadata-only" };
-  }
-  const latestRevision = latest.transcriptRevision ?? latest.outputLines.length;
-  if (latestRevision !== params.requestRevision) {
-    return { kind: "drop", reason: "transcript-revision-changed" };
   }
   return { kind: "apply" };
 };

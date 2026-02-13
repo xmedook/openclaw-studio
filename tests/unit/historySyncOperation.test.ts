@@ -73,7 +73,7 @@ describe("historySyncOperation", () => {
     expect(commands).toEqual([{ kind: "noop", reason: "missing-agent" }]);
   });
 
-  it("returns metadata-only update command when latest agent is running with active run", async () => {
+  it("applies history updates even when latest agent is running with active run", async () => {
     const agent = createAgent({
       status: "running",
       runId: "run-1",
@@ -99,27 +99,18 @@ describe("historySyncOperation", () => {
     });
 
     const updates = getCommandsByKind(commands, "dispatchUpdateAgent");
-    expect(updates).toContainEqual({
-      kind: "dispatchUpdateAgent",
-      agentId: "agent-1",
-      patch: {
-        historyLoadedAt: 2_345,
-        historyFetchLimit: 200,
-        historyFetchedCount: 1,
-        historyMaybeTruncated: false,
-        lastAppliedHistoryRequestId: "req-2",
-      },
-    });
     const metrics = getCommandsByKind(commands, "logMetric");
-    expect(metrics).toContainEqual({
-      kind: "logMetric",
-      metric: "history_apply_skipped_running",
-      meta: {
-        agentId: "agent-1",
-        requestId: "req-2",
-        runId: "run-1",
-      },
-    });
+    expect(metrics).toEqual([]);
+
+    const finalUpdate = updates[updates.length - 1];
+    if (!finalUpdate) throw new Error("Expected final update command.");
+    const patch = finalUpdate.patch;
+    expect(patch.outputLines).toContain("> local question");
+    expect(patch.outputLines).toContain("assistant draft");
+    expect(patch.outputLines).toContain("remote answer");
+    expect(patch.lastResult).toBe("remote answer");
+    expect(patch.latestPreview).toBe("remote answer");
+    expect(patch.lastAppliedHistoryRequestId).toBe("req-2");
   });
 
   it("returns transcript merge update commands when disposition is apply and transcript v2 is enabled", async () => {
@@ -197,7 +188,7 @@ describe("historySyncOperation", () => {
     expect(patch.lastAppliedHistoryRequestId).toBe("req-4");
   });
 
-  it("returns stale-drop metric and metadata update when transcript revision changed during fetch", async () => {
+  it("still applies history when transcript revision changes during fetch", async () => {
     const requestAgent = createAgent({
       transcriptRevision: 7,
       outputLines: ["> local question", "assistant current"],
@@ -229,28 +220,17 @@ describe("historySyncOperation", () => {
       transcriptV2Enabled: true,
     });
 
-    expect(commands).toContainEqual({
-      kind: "logMetric",
-      metric: "history_response_dropped_stale",
-      meta: {
-        reason: "transcript_revision_changed",
-        agentId: "agent-1",
-        requestId: "req-5",
-        requestRevision: 7,
-        latestRevision: 8,
-      },
-    });
-    expect(commands).toContainEqual({
-      kind: "dispatchUpdateAgent",
-      agentId: "agent-1",
-      patch: {
-        historyLoadedAt: 5_678,
-        historyFetchLimit: 200,
-        historyFetchedCount: 1,
-        historyMaybeTruncated: false,
-        lastAppliedHistoryRequestId: "req-5",
-      },
-    });
+    const metrics = getCommandsByKind(commands, "logMetric");
+    expect(metrics).toEqual([]);
+
+    const updates = getCommandsByKind(commands, "dispatchUpdateAgent");
+    const finalUpdate = updates[updates.length - 1];
+    if (!finalUpdate) throw new Error("Expected final update command.");
+    const patch = finalUpdate.patch;
+    expect(patch.outputLines).toContain("> local question");
+    expect(patch.outputLines).toContain("assistant current");
+    expect(patch.outputLines).toContain("stale remote answer");
+    expect(patch.lastAppliedHistoryRequestId).toBe("req-5");
     expect(inFlight.size).toBe(0);
   });
 });

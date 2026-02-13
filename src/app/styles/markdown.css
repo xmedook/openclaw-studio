@@ -96,6 +96,12 @@
   border-radius: 0;
 }
 
+.agent-tool-markdown pre {
+  max-height: 50px;
+  overflow: auto;
+  padding: 0.5rem 0.6rem;
+}
+
 .agent-markdown blockquote {
   border-left: 3px solid color-mix(in oklch, var(--primary) 28%, var(--border));
   padding-left: 0.7rem;
