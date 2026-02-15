@@ -97,15 +97,16 @@ Studio persists Gateway connection settings on the Studio host (not in browser s
 The WS proxy loads these settings server-side and opens the upstream connection.
 
 Files:
-- Settings file access (server): `server/studio-settings.js`
+- Settings file access (WS proxy): `server/studio-settings.js`
 - Settings API route (browser -> server): `src/app/api/studio/route.ts`
 - Client-side load/patch coordinator: `src/lib/studio/coordinator.ts`
+- Settings storage + fallback behavior used by `/api/studio`: `src/lib/studio/settings-store.ts`
 
 Connection note:
 - In the browser, `useGatewayConnection()` stores the upstream URL/token in memory (loaded from `/api/studio`) but connects the WebSocket to Studio via `resolveStudioProxyGatewayUrl()`; the upstream URL is passed as `authScopeKey` (not as the WebSocket URL). See `src/lib/gateway/GatewayClient.ts`.
 
 Token resolution note:
-- The Studio server resolves an upstream token from `openclaw-studio/settings.json`, and if it is missing it may fall back to the local OpenClaw config in `openclaw.json` (token + port). See `server/studio-settings.js`.
+- The Studio server resolves an upstream token from `openclaw-studio/settings.json`, and if it is missing it may fall back to the local OpenClaw config in `openclaw.json` (token + port). This behavior exists in both the WS proxy path (`server/studio-settings.js`) and the `/api/studio` storage layer (`src/lib/studio/settings-store.ts`) and they should remain consistent.
 - The WS proxy currently requires an upstream token to be available from the Studio host settings resolver even if the browser `connect` frame includes a token. See the `studio.gateway_token_missing` check in `server/gateway-proxy.js`.
 
 ## WebSocket Frame Shapes
@@ -154,8 +155,8 @@ Error codes used by the proxy include:
 
 There are two layers of retry behavior:
 
-- Transport reconnect: the vendored browser client reconnects the browser->Studio WebSocket with backoff when it closes, and continues emitting events after reconnect. See `src/lib/gateway/openclaw/GatewayBrowserClient.ts`.
-- Connect failure retry: when the initial `connect` handshake fails (for example bad token), `useGatewayConnection()` may schedule a limited auto-retry unless the error code is known non-retryable. See `resolveGatewayAutoRetryDelayMs` in `src/lib/gateway/GatewayClient.ts`.
+- Transport reconnect (after a successful hello): the vendored browser client reconnects the browser->Studio WebSocket with backoff when it closes, and continues emitting events after reconnect. See `src/lib/gateway/openclaw/GatewayBrowserClient.ts`.
+- Initial connect failure retry: when the initial `connect` handshake fails (for example bad token), `GatewayClient.connect()` tears down the vendored client and returns a rejected promise; `useGatewayConnection()` may schedule a limited re-attempt unless the error code is known non-retryable. See `resolveGatewayAutoRetryDelayMs` in `src/lib/gateway/GatewayClient.ts`.
 
 ## Optional Studio Access Gate
 
@@ -306,6 +307,21 @@ Files:
 - Resolve operation: `src/features/agents/approvals/execApprovalResolveOperation.ts`
 - Wiring (subscribe + render): `src/app/page.tsx`, `src/features/agents/components/AgentChatPanel.tsx`
 
+## Media Rendering (Images From Agent Output)
+
+If an agent outputs lines like:
+- `MEDIA: /home/ubuntu/.openclaw/.../image.png`
+
+Studio may render them inline:
+1. UI rewrites eligible `MEDIA:` lines into markdown images (`![](/api/gateway/media?path=...)`) but avoids rewriting inside fenced code blocks.
+2. The browser requests `/api/gateway/media`.
+3. The API route reads the image either locally (only under `~/.openclaw`) or over SSH for remote gateways, and returns the bytes with the correct `Content-Type`.
+
+Files:
+- Rewrite helper: `src/lib/text/media-markdown.ts`
+- Media API route: `src/app/api/gateway/media/route.ts`
+- SSH helper + env vars (`OPENCLAW_GATEWAY_SSH_TARGET`, `OPENCLAW_GATEWAY_SSH_USER`): `src/lib/ssh/gateway-host.ts`
+
 ## Debugging Checklist (When Chat “Feels Buggy”)
 
 Start with the hop where symptoms appear.
@@ -318,10 +334,15 @@ Streaming correctness (missing/duplicated output):
 - Event classification + runtime stream merge: `src/features/agents/state/gatewayRuntimeEventHandler.ts`
 - Text/thinking/tool extraction quirks: `src/lib/text/message-extract.ts`
 - UI item derivation and collapsing rules: `src/features/agents/components/chatItems.ts`
+- Dedupe of tool lines per run + closed-run ignore window: `src/features/agents/state/gatewayRuntimeEventHandler.ts`
 
 History and ordering issues:
 - `chat.history` merge logic and dedupe: `src/features/agents/operations/historySyncOperation.ts`
 - Transcript entry ordering/fingerprints: `src/features/agents/state/transcript.ts`
+
+Media not rendering:
+- `MEDIA:` rewrite behavior and code-fence skipping: `src/lib/text/media-markdown.ts`
+- Image fetch route behavior (local vs SSH, allowlisted extensions, size limits): `src/app/api/gateway/media/route.ts`
 
 If you need Gateway-side observability:
 - Capture the exact `connect` settings used by Studio (URL + token are stored server-side in the Studio settings file).
