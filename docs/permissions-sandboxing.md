@@ -177,7 +177,23 @@ Modes (as implemented upstream):
 - `all`: every session is sandboxed.
 - `non-main`: sandbox all sessions except the agent’s main session key.
 
-The “main session key” comparison is done against the configured main key (e.g. `agent:<agentId>:main`).
+The “main session key” comparison is done against the configured main key, with alias-canonicalization:
+- Upstream canonicalizes the session key before comparing so that main-session aliases are treated as “main” (see `canonicalizeMainSessionAlias` in upstream sandbox runtime-status).
+- If `session.scope` is `global`, the main session key is `global` and `non-main` effectively means “sandbox everything except the global session”.
+
+Upstream implementation reference:
+- `openclaw/src/agents/sandbox/runtime-status.ts` (`resolveSandboxRuntimeStatus`)
+
+### Sandbox Scope (`sandbox.scope`)
+
+Sandbox scope controls how sandboxes are shared and therefore what persists between runs:
+- `session`: per-session sandbox workspace/container (highest isolation, most churn)
+- `agent`: per-agent sandbox workspace/container keyed by agent id (shared across that agent’s sessions)
+- `shared`: one sandbox workspace/container shared across everything (lowest isolation)
+
+Upstream implementation reference:
+- `openclaw/src/agents/sandbox/types.ts` (`SandboxScope`)
+- `openclaw/src/agents/sandbox/shared.ts` (`resolveSandboxScopeKey`)
 
 ### Workspace Access (`sandbox.workspaceAccess`)
 
@@ -222,9 +238,18 @@ Upstream resolution:
 
 Important nuance:
 - If `tools.sandbox.tools.allow` is present and non-empty, it becomes an allowlist.
-- If it is set to an empty array, upstream will still auto-add `image` to the allowlist (unless explicitly denied), which turns “empty” into effectively “image-only”.
+- If it is set to an empty array, upstream will still auto-add `image` to the allowlist (unless explicitly denied), which often turns “empty” into effectively “image-only”.
+- If you want “allow everything” semantics in sandbox policy, prefer `["*"]` over `[]` to avoid the image auto-add corner case.
 
 This is why Studio treats some configs as “broken” and repairs them (see below).
+
+### Policy Layering (Why “Allowed” Can Still Be Blocked)
+
+In a sandboxed session, a tool must pass multiple gates:
+- The normal tool policy gates (`tools.profile`, `tools.allow|alsoAllow`, `tools.deny`, plus any provider/group/subagent policies upstream applies).
+- The sandbox tool policy gate (`tools.sandbox.tools.allow|deny` resolved for that agent).
+
+So even if Studio enables `group:runtime` for an agent, the tool can still be blocked in sandboxed sessions if sandbox tool policy denies it.
 
 ## OpenClaw (Upstream): Tool Availability and `workspaceAccess=ro`
 
