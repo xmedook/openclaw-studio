@@ -23,6 +23,7 @@ import {
   type RuntimePolicyIntent,
 } from "@/features/agents/state/runtimeEventPolicy";
 import { type EventFrame, isSameSessionKey } from "@/lib/gateway/GatewayClient";
+import { normalizeAssistantDisplayText } from "@/lib/text/assistantText";
 import {
   extractText,
   extractThinking,
@@ -442,6 +443,17 @@ export function createGatewayRuntimeEventHandler(
       message: payload.message,
       now: now(),
     });
+    const normalizedAssistantFinalText =
+      payload.state === "final" &&
+      role === "assistant" &&
+      !isToolRole &&
+      typeof nextText === "string"
+        ? normalizeAssistantDisplayText(nextText)
+        : null;
+    const finalAssistantText =
+      normalizedAssistantFinalText && normalizedAssistantFinalText.length > 0
+        ? normalizedAssistantFinalText
+        : null;
 
     if (payload.state === "delta") {
       if (typeof nextTextRaw === "string" && isUiMetadataPrefix(nextTextRaw.trim())) {
@@ -499,7 +511,7 @@ export function createGatewayRuntimeEventHandler(
       Boolean(agent) &&
       !(agent?.outputLines.some((line) => isTraceMarkdown(line.trim())) ?? false);
     const shouldUpdateLastResult =
-      payload.state === "final" && !isToolRole && typeof nextText === "string";
+      payload.state === "final" && !isToolRole && typeof finalAssistantText === "string";
     const shouldQueueLatestUpdate =
       payload.state === "final" && Boolean(agent?.lastUserMessage && !agent.latestOverride);
     const chatIntents = decideRuntimeChatEvent({
@@ -520,7 +532,7 @@ export function createGatewayRuntimeEventHandler(
       shouldUpdateLastResult,
       shouldSetRunIdle: Boolean(payload.runId && agent?.runId === payload.runId && payload.state !== "error"),
       shouldSetRunError: Boolean(payload.runId && agent?.runId === payload.runId && payload.state === "error"),
-      lastResultText: shouldUpdateLastResult ? nextText : null,
+      lastResultText: shouldUpdateLastResult ? finalAssistantText : null,
       assistantCompletionAt: payload.state === "final" ? assistantCompletionAt : null,
       shouldQueueLatestUpdate,
       latestUpdateMessage: shouldQueueLatestUpdate ? (agent?.lastUserMessage ?? null) : null,
@@ -589,8 +601,8 @@ export function createGatewayRuntimeEventHandler(
         timestampMs: assistantCompletionAt ?? now(),
         lines: toolLines,
       });
-      if (!isToolRole && typeof nextText === "string") {
-        dispatchOutput(agentId, nextText, {
+      if (!isToolRole && typeof finalAssistantText === "string") {
+        dispatchOutput(agentId, finalAssistantText, {
           source: "runtime-chat",
           runId: payload.runId ?? null,
           sessionKey: payload.sessionKey,
@@ -841,7 +853,10 @@ export function createGatewayRuntimeEventHandler(
       clearPendingLivePatch(match);
     }
     if (phase === "end" && !hasChatEvents) {
-      const finalText = agent.streamText?.trim();
+      const normalizedStreamText = agent.streamText
+        ? normalizeAssistantDisplayText(agent.streamText)
+        : "";
+      const finalText = normalizedStreamText.length > 0 ? normalizedStreamText : null;
       if (finalText) {
         const assistantCompletionAt = now();
         const startedAt = thinkingStartedAtByRun.get(payload.runId);

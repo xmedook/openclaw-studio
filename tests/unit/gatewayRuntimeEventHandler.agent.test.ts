@@ -454,4 +454,58 @@ describe("gateway runtime event handler (agent)", () => {
     ).toBe(true);
     expect(clearPendingLivePatch).toHaveBeenCalledWith("agent-1");
   });
+
+  it("normalizes markdown-rich lifecycle fallback assistant text before append and lastResult update", () => {
+    const normalizedAssistantText = ["- item one", "- item two", "", "```ts", "const n = 1;", "```"].join(
+      "\n"
+    );
+    const agents = [
+      createAgent({
+        streamText: "\n- item one  \n- item two\t \n\n\n```ts  \nconst n = 1;\t\n```\n\n",
+        runId: "run-6",
+      }),
+    ];
+    const actions: Array<{ type: string; line?: string; patch?: unknown }> = [];
+    const handler = createGatewayRuntimeEventHandler({
+      getStatus: () => "connected",
+      getAgents: () => agents,
+      dispatch: vi.fn((action) => {
+        actions.push(action as never);
+      }),
+      queueLivePatch: vi.fn(),
+      clearPendingLivePatch: vi.fn(),
+      now: () => 1000,
+      loadSummarySnapshot: vi.fn(async () => {}),
+      requestHistoryRefresh: vi.fn(async () => {}),
+      refreshHeartbeatLatestUpdate: vi.fn(),
+      bumpHeartbeatTick: vi.fn(),
+      setTimeout: (fn, ms) => setTimeout(fn, ms) as unknown as number,
+      clearTimeout: (id) => clearTimeout(id as unknown as NodeJS.Timeout),
+      isDisconnectLikeError: () => false,
+      logWarn: vi.fn(),
+      updateSpecialLatestUpdate: vi.fn(),
+    });
+
+    handler.handleEvent({
+      type: "event",
+      event: "agent",
+      payload: {
+        runId: "run-6",
+        sessionKey: agents[0]!.sessionKey,
+        stream: "lifecycle",
+        data: { phase: "end" },
+      },
+    } as EventFrame);
+
+    expect(
+      actions.some((entry) => entry.type === "appendOutput" && entry.line === normalizedAssistantText)
+    ).toBe(true);
+    expect(
+      actions.some((entry) => {
+        if (entry.type !== "updateAgent") return false;
+        const patch = entry.patch as Record<string, unknown>;
+        return patch.lastResult === normalizedAssistantText;
+      })
+    ).toBe(true);
+  });
 });

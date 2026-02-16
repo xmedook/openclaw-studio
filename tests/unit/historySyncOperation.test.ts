@@ -118,7 +118,15 @@ describe("historySyncOperation", () => {
       transcriptRevision: 1,
       outputLines: ["> local question"],
     });
-    const messages: ChatHistoryMessage[] = [{ role: "assistant", content: "Merged answer" }];
+    const markdownAssistant = [
+      "- first bullet",
+      "- second bullet",
+      "",
+      "```ts",
+      "console.log('merged answer');",
+      "```",
+    ].join("\n");
+    const messages: ChatHistoryMessage[] = [{ role: "assistant", content: markdownAssistant }];
     const commands = await runHistorySyncOperation({
       client: {
         call: async <T>() =>
@@ -149,10 +157,45 @@ describe("historySyncOperation", () => {
     const patch = finalUpdate.patch;
     expect(Array.isArray(patch.outputLines)).toBe(true);
     expect(patch.outputLines).toContain("> local question");
-    expect(patch.outputLines).toContain("Merged answer");
-    expect(patch.lastResult).toBe("Merged answer");
-    expect(patch.latestPreview).toBe("Merged answer");
+    expect(patch.outputLines).toContain(markdownAssistant);
+    expect(patch.lastResult).toBe(markdownAssistant);
+    expect(patch.latestPreview).toBe(markdownAssistant);
     expect(patch.lastAppliedHistoryRequestId).toBe("req-3");
+  });
+
+  it("normalizes assistant text in transcript-v2 history sync patches", async () => {
+    const agent = createAgent({
+      transcriptRevision: 1,
+      outputLines: ["> local question"],
+    });
+    const commands = await runHistorySyncOperation({
+      client: {
+        call: async <T>() =>
+          ({
+            sessionKey: agent.sessionKey,
+            messages: [{ role: "assistant", content: "\n- alpha  \n\n\n- beta\t \n\n" }],
+          }) as T,
+      },
+      agentId: "agent-1",
+      getAgent: () => agent,
+      inFlightSessionKeys: new Set<string>(),
+      requestId: "req-3b",
+      loadedAt: 3_789,
+      defaultLimit: 200,
+      maxLimit: 5000,
+      transcriptV2Enabled: true,
+    });
+
+    const updates = getCommandsByKind(commands, "dispatchUpdateAgent");
+    const finalUpdate = updates[updates.length - 1];
+    if (!finalUpdate) throw new Error("Expected final update command.");
+    const patch = finalUpdate.patch;
+    expect(Array.isArray(patch.outputLines)).toBe(true);
+    expect(patch.outputLines).toContain("> local question");
+    expect(patch.outputLines).toContain("- alpha\n\n- beta");
+    expect(patch.lastResult).toBe("- alpha\n\n- beta");
+    expect(patch.latestPreview).toBe("- alpha\n\n- beta");
+    expect(patch.lastAppliedHistoryRequestId).toBe("req-3b");
   });
 
   it("returns legacy history sync patch command when transcript v2 is disabled", async () => {

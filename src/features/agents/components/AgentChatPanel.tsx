@@ -12,10 +12,11 @@ import {
 import type { AgentState as AgentRecord } from "@/features/agents/state/store";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChevronRight, Clock, Cog, Copy, Shuffle } from "lucide-react";
+import { ChevronRight, Clock, Cog, Shuffle } from "lucide-react";
 import type { GatewayModelChoice } from "@/lib/gateway/models";
 import { isTraceMarkdown } from "@/lib/text/message-extract";
 import { rewriteMediaLinesToMarkdown } from "@/lib/text/media-markdown";
+import { normalizeAssistantDisplayText } from "@/lib/text/assistantText";
 import { isNearBottom } from "@/lib/dom";
 import { AgentAvatar } from "./AgentAvatar";
 import type {
@@ -24,7 +25,6 @@ import type {
 } from "@/features/agents/approvals/types";
 import {
   buildFinalAgentChatItems,
-  normalizeAssistantDisplayText,
   summarizeToolLabel,
   type AgentChatItem,
 } from "./chatItems";
@@ -82,28 +82,6 @@ const resolveAssistantMaxWidthClass = (text: string | null | undefined): string 
     return ASSISTANT_MAX_WIDTH_EXPANDED_CLASS;
   }
   return ASSISTANT_MAX_WIDTH_DEFAULT_CLASS;
-};
-
-const splitArtifactContent = (
-  rawText: string
-): { intro: string | null; artifact: string | null; artifactOnly: boolean } => {
-  const text = rawText.trim();
-  if (!text) return { intro: null, artifact: null, artifactOnly: false };
-  if (!text.includes("\n\n")) {
-    return isStructuredMarkdown(text)
-      ? { intro: null, artifact: text, artifactOnly: true }
-      : { intro: null, artifact: null, artifactOnly: false };
-  }
-  const [maybeIntro, ...restParts] = text.split(/\n\n+/);
-  const rest = restParts.join("\n\n").trim();
-  const intro = (maybeIntro ?? "").trim();
-  const introWordCount = intro ? intro.split(/\s+/).filter(Boolean).length : 0;
-  if (rest && intro && introWordCount <= 60 && isStructuredMarkdown(rest)) {
-    return { intro, artifact: rest, artifactOnly: false };
-  }
-  return isStructuredMarkdown(text)
-    ? { intro: null, artifact: text, artifactOnly: true }
-    : { intro: null, artifact: null, artifactOnly: false };
 };
 
 type AgentChatPanelProps = {
@@ -286,8 +264,6 @@ const AssistantMessageCard = memo(function AssistantMessageCard({
 }) {
   const resolvedTimestamp = typeof timestampMs === "number" ? timestampMs : null;
   const widthClass = resolveAssistantMaxWidthClass(contentText);
-  const { intro, artifact, artifactOnly } =
-    streaming || !contentText ? { intro: null, artifact: null, artifactOnly: false } : splitArtifactContent(contentText);
   const hasThinking = Boolean(thinkingText?.trim());
   const hasContent = Boolean(contentText?.trim());
   const compactStreamingIndicator = Boolean(streaming && !hasThinking && !hasContent);
@@ -377,42 +353,6 @@ const AssistantMessageCard = memo(function AssistantMessageCard({
                     </div>
                   );
                 })()
-              ) : artifact ? (
-                <>
-                  {!artifactOnly && intro ? (
-                    <div className="agent-markdown text-foreground">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {rewriteMediaLinesToMarkdown(intro)}
-                      </ReactMarkdown>
-                    </div>
-                  ) : null}
-                  <div className="group rounded-[8px] border border-border/70 bg-surface-3 px-3 py-2">
-                    <div className="flex items-center justify-between gap-3 pb-2">
-                      <div className="min-w-0 truncate font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/80">
-                        Output
-                      </div>
-                      <button
-                        type="button"
-                        className="rounded-[8px] bg-surface-1 p-1.5 text-muted-foreground opacity-0 transition hover:bg-surface-2 group-hover:opacity-100"
-                        aria-label="Extract output"
-                        title="Copy output"
-                        onClick={() => {
-                          if (!navigator.clipboard?.writeText) return;
-                          void navigator.clipboard.writeText(artifact).catch((err) => {
-                            console.warn("Failed to copy output to clipboard.", err);
-                          });
-                        }}
-                      >
-                        <Copy className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                    <div className="agent-markdown text-foreground">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {rewriteMediaLinesToMarkdown(artifact)}
-                      </ReactMarkdown>
-                    </div>
-                  </div>
-                </>
               ) : (
                 <div className="agent-markdown text-foreground">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -459,29 +399,30 @@ const AgentChatFinalItems = memo(function AgentChatFinalItems({
   > = [];
 
   for (const item of chatItems) {
-    if (item.kind === "thinking") {
-      pendingThinking = item;
-      continue;
+    switch (item.kind) {
+      case "thinking":
+        pendingThinking = item;
+        break;
+      case "user":
+        pendingThinking = null;
+        blocks.push({ kind: "user", text: item.text, timestampMs: item.timestampMs });
+        break;
+      case "assistant":
+        blocks.push({
+          kind: "assistant",
+          text: item.text,
+          timestampMs: item.timestampMs ?? pendingThinking?.timestampMs,
+          thinkingText: pendingThinking?.kind === "thinking" ? pendingThinking.text : undefined,
+          thinkingDurationMs:
+            item.thinkingDurationMs ??
+            (pendingThinking?.kind === "thinking" ? pendingThinking.thinkingDurationMs : undefined),
+        });
+        pendingThinking = null;
+        break;
+      case "tool":
+        blocks.push({ kind: "tool", text: item.text });
+        break;
     }
-    if (item.kind === "user") {
-      pendingThinking = null;
-      blocks.push({ kind: "user", text: item.text, timestampMs: item.timestampMs });
-      continue;
-    }
-    if (item.kind === "assistant") {
-      blocks.push({
-        kind: "assistant",
-        text: item.text,
-        timestampMs: item.timestampMs ?? pendingThinking?.timestampMs,
-        thinkingText: pendingThinking?.kind === "thinking" ? pendingThinking.text : undefined,
-        thinkingDurationMs:
-          item.thinkingDurationMs ??
-          (pendingThinking?.kind === "thinking" ? pendingThinking.thinkingDurationMs : undefined),
-      });
-      pendingThinking = null;
-      continue;
-    }
-    blocks.push({ kind: "tool", text: item.text });
   }
 
   if (pendingThinking?.kind === "thinking") {

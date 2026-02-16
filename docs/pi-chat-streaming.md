@@ -239,6 +239,12 @@ Rendering pipeline:
   - `showThinkingTraces`: hides/shows `[[trace]]` thinking entries.
   - `toolCallingEnabled`: when off, tool lines are hidden and some exec tool results may be shown as assistant text.
 
+### Rendering contract
+
+- Assistant markdown renders as assistant markdown. Studio does not wrap normal assistant markdown in a synthetic `Output` container.
+- Tool cards render only from explicit marker lines: `[[tool]]` and `[[tool-result]]`.
+- List-marker visibility comes from chat markdown styles in `src/app/styles/markdown.css`; stream parsing does not invent list bullets.
+
 Files:
 - Chat panel UI: `src/features/agents/components/AgentChatPanel.tsx`
 - Transcript parsing into items: `src/features/agents/components/chatItems.ts`

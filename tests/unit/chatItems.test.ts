@@ -160,6 +160,69 @@ describe("buildFinalAgentChatItems", () => {
       },
     ]);
   });
+
+  it("keeps assistant markdown as assistant content", () => {
+    const items = buildFinalAgentChatItems({
+      outputLines: ["- first item\n- second item"],
+      showThinkingTraces: true,
+      toolCallingEnabled: true,
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ kind: "assistant" });
+    expect(items[0]?.text).toContain("- first item");
+  });
+
+  it("classifies tool markdown as tool items when tool calling is enabled", () => {
+    const callLine = formatToolCallMarkdown({
+      id: "call_123",
+      name: "exec",
+      arguments: { command: "pwd" },
+    });
+    const toolLine = formatToolResultMarkdown({
+      toolCallId: "call_123",
+      toolName: "exec",
+      details: { status: "completed", exitCode: 0 },
+      text: "pwd",
+      isError: false,
+    });
+    const items = buildFinalAgentChatItems({
+      outputLines: [callLine, toolLine],
+      showThinkingTraces: true,
+      toolCallingEnabled: true,
+    });
+
+    expect(items).toEqual([
+      {
+        kind: "tool",
+        text: callLine,
+      },
+      {
+        kind: "tool",
+        text: toolLine,
+      },
+    ]);
+  });
+
+  it("coerces exec tool results into assistant text when tool calling is disabled", () => {
+    const toolLine = formatToolResultMarkdown({
+      toolCallId: "call_456",
+      toolName: "exec",
+      details: { status: "completed", exitCode: 0 },
+      text: "pwd",
+      isError: false,
+    });
+    const items = buildFinalAgentChatItems({
+      outputLines: [toolLine],
+      showThinkingTraces: true,
+      toolCallingEnabled: false,
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ kind: "assistant" });
+    expect(items[0]?.text).toContain("completed");
+    expect(items[0]?.text).toContain("pwd");
+  });
 });
 
 describe("summarizeToolLabel", () => {

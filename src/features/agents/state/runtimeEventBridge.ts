@@ -9,6 +9,7 @@ import {
   isUiMetadataPrefix,
   stripUiMetadata,
 } from "@/lib/text/message-extract";
+import { normalizeAssistantDisplayText } from "@/lib/text/assistantText";
 
 type LifecyclePhase = "start" | "end" | "error";
 
@@ -223,7 +224,8 @@ export const buildHistoryLines = (messages: ChatHistoryMessage[]): HistoryLinesR
   for (const message of messages) {
     const role = typeof message.role === "string" ? message.role : "other";
     const extracted = extractText(message);
-    const text = stripUiMetadata(extracted?.trim() ?? "");
+    const baseText = stripUiMetadata(extracted?.trim() ?? "");
+    const text = role === "assistant" ? normalizeAssistantDisplayText(baseText) : baseText;
     const thinking =
       role === "assistant" ? formatThinkingMarkdown(extractThinking(message) ?? "") : "";
     const toolLines = extractToolLines(message);

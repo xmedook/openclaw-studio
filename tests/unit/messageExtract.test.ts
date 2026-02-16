@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { normalizeAssistantDisplayText } from "@/lib/text/assistantText";
 import {
   buildAgentInstruction,
   extractText,
@@ -98,5 +99,11 @@ describe("message-extract", () => {
 [message_id: e050a641-aa32-4950-8083-c3bb7efdfc6d]`;
 
     expect(stripUiMetadata(raw)).toBe("[Thu 2026-02-12 01:14 UTC] nope none of those are it. keep looking");
+  });
+
+  it("normalizes assistant helper text shape", () => {
+    expect(normalizeAssistantDisplayText("first\r\n\r\n\r\nsecond")).toBe("first\n\nsecond");
+    expect(normalizeAssistantDisplayText("line one  \nline two\t \n")).toBe("line one\nline two");
+    expect(normalizeAssistantDisplayText("\n\nalpha\n\n\nbeta\n\n")).toBe("alpha\n\nbeta");
   });
 });

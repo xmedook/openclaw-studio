@@ -11,6 +11,7 @@ import {
   buildTranscriptEntriesFromLines,
   mergeTranscriptEntriesWithHistory,
 } from "@/features/agents/state/transcript";
+import { normalizeAssistantDisplayText } from "@/lib/text/assistantText";
 
 type ChatHistoryMessage = Record<string, unknown>;
 
@@ -160,6 +161,9 @@ export const runHistorySyncOperation = async (
             confirmed: true,
           });
       const history = buildHistoryLines(historyMessages);
+      const normalizedLastAssistant = history.lastAssistant
+        ? normalizeAssistantDisplayText(history.lastAssistant)
+        : null;
       const rawHistoryEntries = buildTranscriptEntriesFromLines({
         lines: history.lines,
         sessionKey: requestIntent.sessionKey,
@@ -200,8 +204,8 @@ export const runHistorySyncOperation = async (
                 outputLines: mergedLines,
               }
             : {}),
-          ...(history.lastAssistant ? { lastResult: history.lastAssistant } : {}),
-          ...(history.lastAssistant ? { latestPreview: history.lastAssistant } : {}),
+          ...(normalizedLastAssistant ? { lastResult: normalizedLastAssistant } : {}),
+          ...(normalizedLastAssistant ? { latestPreview: normalizedLastAssistant } : {}),
           ...(typeof history.lastAssistantAt === "number"
             ? { lastAssistantMessageAt: history.lastAssistantAt }
             : {}),

@@ -251,6 +251,60 @@ describe("gateway runtime event handler (chat)", () => {
     expect(clearPendingLivePatch).toHaveBeenCalledWith("agent-1");
   });
 
+  it("normalizes markdown-rich final assistant chat text before append and lastResult update", () => {
+    const agents = [createAgent({ status: "running", runId: "run-1", runStartedAt: 900 })];
+    const dispatched: Array<{ type: string; line?: string; patch?: unknown }> = [];
+    const normalizedAssistantText = ["- item one", "- item two", "", "```ts", "const n = 1;", "```"].join(
+      "\n"
+    );
+    const handler = createGatewayRuntimeEventHandler({
+      getStatus: () => "connected",
+      getAgents: () => agents,
+      dispatch: vi.fn((action) => {
+        dispatched.push(action as never);
+      }),
+      queueLivePatch: vi.fn(),
+      clearPendingLivePatch: vi.fn(),
+      now: () => 1000,
+      loadSummarySnapshot: vi.fn(async () => {}),
+      requestHistoryRefresh: vi.fn(async () => {}),
+      refreshHeartbeatLatestUpdate: vi.fn(),
+      bumpHeartbeatTick: vi.fn(),
+      setTimeout: (fn, ms) => setTimeout(fn, ms) as unknown as number,
+      clearTimeout: (id) => clearTimeout(id as unknown as NodeJS.Timeout),
+      isDisconnectLikeError: () => false,
+      logWarn: vi.fn(),
+      updateSpecialLatestUpdate: vi.fn(),
+    });
+
+    handler.handleEvent({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-1",
+        sessionKey: agents[0]!.sessionKey,
+        state: "final",
+        message: {
+          role: "assistant",
+          content: "\n- item one  \r\n- item two\t \r\n\r\n\r\n```ts  \r\nconst n = 1;\t\r\n```\r\n\r\n",
+        },
+      },
+    });
+
+    expect(
+      dispatched.some(
+        (entry) => entry.type === "appendOutput" && entry.line === normalizedAssistantText
+      )
+    ).toBe(true);
+    expect(
+      dispatched.some((entry) => {
+        if (entry.type !== "updateAgent") return false;
+        const patch = entry.patch as Record<string, unknown>;
+        return patch.lastResult === normalizedAssistantText;
+      })
+    ).toBe(true);
+  });
+
   it("requests history refresh through boundary command only when final assistant arrives without trace lines", () => {
     vi.useFakeTimers();
     try {

@@ -316,6 +316,58 @@ describe("runtime event bridge helpers", () => {
     expect(history.lastUser).toBe("hello there");
   });
 
+  it("preserves markdown-rich assistant lines and explicit tool boundaries", () => {
+    const assistantMarkdown = [
+      "- item one",
+      "- item two",
+      "",
+      "```json",
+      '{"ok":true}',
+      "```",
+    ].join("\n");
+    const history = buildHistoryLines([
+      {
+        role: "assistant",
+        timestamp: "2024-01-01T00:00:00.000Z",
+        content: assistantMarkdown,
+      },
+      {
+        role: "assistant",
+        timestamp: "2024-01-01T00:00:01.000Z",
+        content: assistantMarkdown,
+      },
+      {
+        role: "toolResult",
+        toolName: "shell",
+        toolCallId: "call-2",
+        details: { status: "ok" },
+        text: "done",
+      },
+    ]);
+
+    expect(history.lines).toEqual([
+      '[[meta]]{"role":"assistant","timestamp":1704067200000}',
+      assistantMarkdown,
+      "[[tool-result]] shell (call-2)\nok\n```text\ndone\n```",
+    ]);
+    expect(history.lastAssistant).toBe(assistantMarkdown);
+    expect(history.lastAssistantAt).toBe(Date.parse("2024-01-01T00:00:01.000Z"));
+    expect(history.lastRole).toBe("assistant");
+  });
+
+  it("normalizes assistant text in history reconstruction", () => {
+    const history = buildHistoryLines([
+      {
+        role: "assistant",
+        content: "\n- item one  \n\n\n- item two\t \n\n",
+      },
+    ]);
+
+    expect(history.lines).toEqual(["- item one\n\n- item two"]);
+    expect(history.lastAssistant).toBe("- item one\n\n- item two");
+    expect(history.lastRole).toBe("assistant");
+  });
+
   it("merges history lines with pending output order and preserves empty-history behavior", () => {
     expect(mergeHistoryWithPending(["a", "c"], ["a", "b", "c"])).toEqual(["a", "b", "c"]);
     expect(mergeHistoryWithPending([], ["a", "b"])).toEqual([]);
