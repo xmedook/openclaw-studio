@@ -2359,6 +2359,7 @@ const AgentStudioPage = () => {
                     stopDisabledReason={focusedAgentStopDisabledReason}
                     onLoadMoreHistory={() => loadMoreAgentHistory(focusedAgent.agentId)}
                     onOpenSettings={() => handleOpenAgentPersonality(focusedAgent.agentId)}
+                    onRename={(name) => handleRenameAgent(focusedAgent.agentId, name)}
                     onNewSession={() => handleNewSession(focusedAgent.agentId)}
                     onModelChange={(value) =>
                       handleModelChange(focusedAgent.agentId, focusedAgent.sessionKey, value)
@@ -2437,7 +2438,6 @@ const AgentStudioPage = () => {
                     client={client}
                     agents={agents}
                     selectedAgentId={inspectSidebarAgent.agentId}
-                    onRename={(name) => handleRenameAgent(inspectSidebarAgent.agentId, name)}
                     onClose={() => {
                       setInspectSidebar(null);
                       setMobilePane("chat");

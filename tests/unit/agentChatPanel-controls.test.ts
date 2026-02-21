@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { AgentState } from "@/features/agents/state/store";
 import { AgentChatPanel } from "@/features/agents/components/AgentChatPanel";
 import type { GatewayModelChoice } from "@/lib/gateway/models";
@@ -61,6 +61,7 @@ describe("AgentChatPanel controls", () => {
         stopBusy: false,
         onLoadMoreHistory: vi.fn(),
         onOpenSettings: vi.fn(),
+        onRename: vi.fn(async () => true),
         onModelChange: vi.fn(),
         onThinkingChange: vi.fn(),
         onDraftChange: vi.fn(),
@@ -73,11 +74,82 @@ describe("AgentChatPanel controls", () => {
     expect(screen.getByText("Model")).toBeInTheDocument();
     expect(screen.getByText("Thinking")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("Agent One")).not.toBeInTheDocument();
+    expect(screen.getByTestId("agent-rename-toggle")).toBeInTheDocument();
+    expect(screen.getByLabelText("Rename agent")).toBeInTheDocument();
     expect(screen.getByTestId("agent-new-session-toggle")).toBeInTheDocument();
     expect(screen.getByLabelText("Start new session")).toBeInTheDocument();
     expect(screen.getByTestId("agent-settings-toggle")).toBeInTheDocument();
     expect(screen.getByLabelText("Open personality")).toBeInTheDocument();
     expect(screen.queryByText("Inspect")).not.toBeInTheDocument();
+  });
+
+  it("renames_agent_inline_from_header", async () => {
+    const onRename = vi.fn(async () => true);
+    render(
+      createElement(AgentChatPanel, {
+        agent: createAgent(),
+        isSelected: true,
+        canSend: true,
+        models,
+        stopBusy: false,
+        onLoadMoreHistory: vi.fn(),
+        onOpenSettings: vi.fn(),
+        onRename,
+        onModelChange: vi.fn(),
+        onThinkingChange: vi.fn(),
+        onDraftChange: vi.fn(),
+        onSend: vi.fn(),
+        onStopRun: vi.fn(),
+        onAvatarShuffle: vi.fn(),
+      })
+    );
+
+    fireEvent.click(screen.getByTestId("agent-rename-toggle"));
+    const input = screen.getByTestId("agent-rename-input") as HTMLInputElement;
+
+    await waitFor(() => {
+      expect(input).toHaveFocus();
+      expect(input.selectionStart).toBe(0);
+      expect(input.selectionEnd).toBe("Agent One".length);
+    });
+
+    fireEvent.change(input, { target: { value: "  Agent Prime  " } });
+    fireEvent.click(screen.getByTestId("agent-rename-save"));
+
+    await waitFor(() => {
+      expect(onRename).toHaveBeenCalledWith("Agent Prime");
+    });
+  });
+
+  it("cancels_inline_rename_without_saving", () => {
+    const onRename = vi.fn(async () => true);
+    render(
+      createElement(AgentChatPanel, {
+        agent: createAgent(),
+        isSelected: true,
+        canSend: true,
+        models,
+        stopBusy: false,
+        onLoadMoreHistory: vi.fn(),
+        onOpenSettings: vi.fn(),
+        onRename,
+        onModelChange: vi.fn(),
+        onThinkingChange: vi.fn(),
+        onDraftChange: vi.fn(),
+        onSend: vi.fn(),
+        onStopRun: vi.fn(),
+        onAvatarShuffle: vi.fn(),
+      })
+    );
+
+    fireEvent.click(screen.getByTestId("agent-rename-toggle"));
+    fireEvent.change(screen.getByTestId("agent-rename-input"), {
+      target: { value: "Edited Name" },
+    });
+    fireEvent.click(screen.getByTestId("agent-rename-cancel"));
+
+    expect(onRename).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("agent-rename-input")).not.toBeInTheDocument();
   });
 
   it("invokes_on_new_session_when_control_clicked", () => {

@@ -92,7 +92,7 @@ const AgentCreateModalContent = ({
             />
           </label>
           <div className="-mt-2 text-[11px] text-muted-foreground">
-            You can rename this agent later in settings.
+            You can rename this agent from the main chat header.
           </div>
           <div className="grid justify-items-center gap-2 border-t border-border/40 pt-3">
             <div className={labelClassName}>Choose avatar</div>

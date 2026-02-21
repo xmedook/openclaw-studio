@@ -1129,7 +1129,6 @@ type AgentBrainPanelProps = {
   client: GatewayClient;
   agents: AgentState[];
   selectedAgentId: string | null;
-  onRename: (value: string) => Promise<boolean>;
   onClose: () => void;
 };
 
@@ -1292,7 +1291,6 @@ export const AgentBrainPanel = ({
   client,
   agents,
   selectedAgentId,
-  onRename,
   onClose,
 }: AgentBrainPanelProps) => {
   const selectedAgent = useMemo(
@@ -1316,14 +1314,6 @@ export const AgentBrainPanel = ({
     reloadAgentFiles,
   } = useAgentFilesEditor({ client, agentId: selectedAgent?.agentId ?? null });
   const [previewMode, setPreviewMode] = useState(true);
-  const [nameDraft, setNameDraft] = useState(selectedAgent?.name ?? "");
-  const [renameSaving, setRenameSaving] = useState(false);
-  const [renameError, setRenameError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setNameDraft(selectedAgent?.name ?? "");
-    setRenameError(null);
-  }, [selectedAgent?.agentId, selectedAgent?.name]);
 
   const handleTabChange = useCallback(
     async (nextTab: PersonalityFileName) => {
@@ -1331,33 +1321,6 @@ export const AgentBrainPanel = ({
     },
     [handleAgentFileTabChange]
   );
-
-  const handleRename = useCallback(async () => {
-    const currentName = selectedAgent?.name?.trim() ?? "";
-    const next = nameDraft.trim();
-    if (!next) {
-      setRenameError("Agent name is required.");
-      return;
-    }
-    if (!selectedAgent || !currentName) {
-      setRenameError("No agent selected.");
-      return;
-    }
-    if (next === currentName) {
-      setRenameError(null);
-      return;
-    }
-    setRenameSaving(true);
-    setRenameError(null);
-    try {
-      const ok = await onRename(next);
-      if (!ok) {
-        setRenameError("Failed to rename agent.");
-      }
-    } finally {
-      setRenameSaving(false);
-    }
-  }, [nameDraft, onRename, selectedAgent]);
 
   const handleClose = useCallback(async () => {
     if (agentFilesSaving) return;
@@ -1381,41 +1344,11 @@ export const AgentBrainPanel = ({
           void handleClose();
         }}
         closeTestId="agent-personality-close"
-        closeDisabled={agentFilesSaving || renameSaving}
+        closeDisabled={agentFilesSaving}
       />
 
       <div className="flex min-h-0 flex-1 flex-col p-4">
-        <section className="pb-4 pt-1" data-testid="agent-personality-identity">
-          <label className="sidebar-copy mt-1 flex flex-col gap-2 text-[11px] text-muted-foreground">
-            <span className="font-medium text-foreground/88">Agent name</span>
-            <input
-              aria-label="Agent name"
-              className="sidebar-input h-10 rounded-md px-3 text-xs font-semibold text-foreground outline-none"
-              value={nameDraft}
-              disabled={renameSaving}
-              onChange={(event) => setNameDraft(event.target.value)}
-            />
-          </label>
-          {renameError ? (
-            <div className="ui-alert-danger mt-3 rounded-md px-3 py-2 text-xs">
-              {renameError}
-            </div>
-          ) : null}
-          <div className="mt-2">
-            <button
-              className="sidebar-btn-utility w-full px-4 py-2 font-mono text-[10px] font-semibold tracking-[0.06em] disabled:cursor-not-allowed disabled:text-muted-foreground/55"
-              type="button"
-              onClick={() => {
-                void handleRename();
-              }}
-              disabled={renameSaving}
-            >
-              {renameSaving ? "Saving..." : "Update Name"}
-            </button>
-          </div>
-        </section>
-
-        <section className="mt-4 flex min-h-0 flex-1 flex-col" data-testid="agent-personality-files">
+        <section className="flex min-h-0 flex-1 flex-col" data-testid="agent-personality-files">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="font-mono text-[10px] font-semibold tracking-[0.06em] text-muted-foreground">
               {AGENT_FILE_META[agentFileTab].hint}

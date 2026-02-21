@@ -107,7 +107,6 @@ describe("AgentBrainPanel", () => {
         client,
         agents,
         selectedAgentId: "agent-1",
-        onRename: vi.fn(async () => true),
         onClose: vi.fn(),
       })
     );
@@ -139,7 +138,6 @@ describe("AgentBrainPanel", () => {
         client,
         agents,
         selectedAgentId: "",
-        onRename: vi.fn(async () => true),
         onClose: vi.fn(),
       })
     );
@@ -159,7 +157,6 @@ describe("AgentBrainPanel", () => {
         client,
         agents,
         selectedAgentId: "agent-1",
-        onRename: vi.fn(async () => true),
         onClose,
       })
     );
@@ -205,28 +202,23 @@ describe("AgentBrainPanel", () => {
     ).toContain("- Name: Alpha Prime");
   });
 
-  it("renames_agent_from_personality_panel", async () => {
+  it("does_not_render_name_editor_in_personality_panel", async () => {
     const { client } = createMockClient();
     const agents = [createAgent("agent-1", "Alpha", "session-1")];
-    const onRename = vi.fn(async () => true);
 
     render(
       createElement(AgentBrainPanel, {
         client,
         agents,
         selectedAgentId: "agent-1",
-        onRename,
         onClose: vi.fn(),
       })
     );
 
-    fireEvent.change(screen.getByLabelText("Agent name"), {
-      target: { value: "  Alpha Prime  " },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Update Name" }));
-
     await waitFor(() => {
-      expect(onRename).toHaveBeenCalledWith("Alpha Prime");
+      expect(screen.getByRole("button", { name: "Personality" })).toBeInTheDocument();
     });
+    expect(screen.queryByLabelText("Agent name")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Update Name" })).not.toBeInTheDocument();
   });
 });
