@@ -150,7 +150,7 @@ describe("studioBootstrapWorkflow", () => {
         "https://gateway.test": {
           mode: "focused",
           selectedAgentId: "agent-3",
-          filter: "idle",
+          filter: "approvals",
         },
       },
       avatars: {},
@@ -164,7 +164,7 @@ describe("studioBootstrapWorkflow", () => {
       })
     ).toEqual({
       preferredSelectedAgentId: "agent-3",
-      focusFilter: "idle",
+      focusFilter: "approvals",
     });
 
     expect(

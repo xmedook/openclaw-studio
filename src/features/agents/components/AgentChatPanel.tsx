@@ -963,6 +963,7 @@ const AgentChatComposer = memo(function AgentChatComposer({
               onChange={(event) => {
                 const nextValue = event.target.value.trim();
                 onModelChange(nextValue ? nextValue : null);
+                event.currentTarget.blur();
               }}
             >
               {modelOptions.length === 0 ? (

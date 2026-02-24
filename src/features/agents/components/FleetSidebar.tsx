@@ -22,7 +22,7 @@ type FleetSidebarProps = {
 const FILTER_OPTIONS: Array<{ value: FocusFilter; label: string; testId: string }> = [
   { value: "all", label: "All", testId: "fleet-filter-all" },
   { value: "running", label: "Running", testId: "fleet-filter-running" },
-  { value: "idle", label: "Idle", testId: "fleet-filter-idle" },
+  { value: "approvals", label: "Approvals", testId: "fleet-filter-approvals" },
 ];
 
 export const FleetSidebar = ({

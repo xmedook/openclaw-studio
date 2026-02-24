@@ -238,7 +238,7 @@ describe("studioBootstrapOperation", () => {
       commands: [
         { kind: "set-focused-preferences-loaded", value: false },
         { kind: "set-preferred-selected-agent-id", agentId: "agent-1" },
-        { kind: "set-focus-filter", filter: "idle" },
+        { kind: "set-focus-filter", filter: "approvals" },
         { kind: "log-error", message: "failed", error: new Error("boom") },
       ],
       setFocusedPreferencesLoaded,
@@ -249,7 +249,7 @@ describe("studioBootstrapOperation", () => {
 
     expect(setFocusedPreferencesLoaded).toHaveBeenCalledWith(false);
     expect(setPreferredSelectedAgentId).toHaveBeenCalledWith("agent-1");
-    expect(setFocusFilter).toHaveBeenCalledWith("idle");
+    expect(setFocusFilter).toHaveBeenCalledWith("approvals");
     expect(logError).toHaveBeenCalledTimes(1);
   });
 
