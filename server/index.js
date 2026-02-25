@@ -3,13 +3,8 @@ const next = require("next");
 
 const { createAccessGate } = require("./access-gate");
 const { createGatewayProxy } = require("./gateway-proxy");
+const { assertPublicHostAllowed, resolveHost } = require("./network-policy");
 const { loadUpstreamGatewaySettings } = require("./studio-settings");
-
-const resolveHost = () => {
-  const fromEnv = process.env.HOST?.trim() || process.env.HOSTNAME?.trim();
-  if (fromEnv) return fromEnv;
-  return "::";
-};
 
 const resolvePort = () => {
   const raw = process.env.PORT?.trim() || "3000";
@@ -26,8 +21,12 @@ const resolvePathname = (url) => {
 
 async function main() {
   const dev = process.argv.includes("--dev");
-  const hostname = resolveHost();
+  const hostname = resolveHost(process.env);
   const port = resolvePort();
+  assertPublicHostAllowed({
+    host: hostname,
+    studioAccessToken: process.env.STUDIO_ACCESS_TOKEN,
+  });
 
   const app = next({
     dev,

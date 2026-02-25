@@ -74,7 +74,7 @@ This is the “always-on” setup. The easiest secure version is to keep the Gat
 
 Notes:
 - Avoid serving Studio behind `/studio` unless you configure `basePath` and rebuild.
-- If Studio is reachable beyond a tailnet, consider setting `STUDIO_ACCESS_TOKEN` (see Configuration below).
+- If Studio is reachable beyond loopback, `STUDIO_ACCESS_TOKEN` is required.
 
 ## How It Connects (Mental Model)
 
@@ -100,7 +100,7 @@ Paths and key settings:
 - OpenClaw config: `~/.openclaw/openclaw.json` (or `OPENCLAW_CONFIG_PATH` / `OPENCLAW_STATE_DIR`)
 - Studio settings: `~/.openclaw/openclaw-studio/settings.json`
 - Default gateway URL: `ws://localhost:18789` (override via Studio Settings or `NEXT_PUBLIC_GATEWAY_URL`)
-- Optional Studio access gate: set `STUDIO_ACCESS_TOKEN` on the Studio server
+- `STUDIO_ACCESS_TOKEN`: required when binding Studio to a public host (`HOST=0.0.0.0`, `HOST=::`, or non-loopback hostnames/IPs); optional for loopback-only binds (`127.0.0.1`, `::1`, `localhost`)
 
 ## UI guide
 

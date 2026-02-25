@@ -175,9 +175,9 @@ There are two layers of retry behavior:
 - Transport reconnect (after a successful hello): the vendored browser client reconnects the browser->Studio WebSocket with backoff when it closes, and continues emitting events after reconnect. See `src/lib/gateway/openclaw/GatewayBrowserClient.ts`.
 - Initial connect failure retry: when the initial `connect` handshake fails (for example bad token), `GatewayClient.connect()` tears down the vendored client and returns a rejected promise; `useGatewayConnection()` may schedule a limited re-attempt unless the error code is known non-retryable. See `resolveGatewayAutoRetryDelayMs` in `src/lib/gateway/GatewayClient.ts`.
 
-## Optional Studio Access Gate
+## Studio Access Gate
 
-If `STUDIO_ACCESS_TOKEN` is set on the Studio server, Studio enforces a simple access gate:
+When Studio is bound to a public host, `STUDIO_ACCESS_TOKEN` is required. For loopback-only binds, it remains optional. When enabled, Studio enforces a simple access gate:
 - HTTP: blocks `/api/*` routes unless the correct cookie is present; you can set it once via `/?access_token=...`.
 - WebSocket: blocks `/api/gateway/ws` upgrades unless the cookie is present.
 
