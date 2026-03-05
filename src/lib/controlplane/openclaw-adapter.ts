@@ -16,8 +16,12 @@ const REQUEST_TIMEOUT_MS = 15_000;
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 15_000;
 const CONNECT_PROTOCOL = 3;
-const CONNECT_CLIENT_ID = "gateway-client";
-const CONNECT_CLIENT_MODE = "backend";
+const CONNECT_CLIENT_ID_BACKEND = "gateway-client";
+const CONNECT_CLIENT_MODE_BACKEND = "backend";
+const CONNECT_CLIENT_PLATFORM_BACKEND = "node";
+const CONNECT_CLIENT_ID_LEGACY = "openclaw-control-ui";
+const CONNECT_CLIENT_MODE_LEGACY = "webchat";
+const CONNECT_CLIENT_PLATFORM_LEGACY = "web";
 const CONNECT_CAPABILITIES = ["tool-events"];
 
 const DEFAULT_METHOD_ALLOWLIST = new Set<string>([
@@ -121,6 +125,8 @@ export class OpenClawGatewayAdapter {
   private createWebSocket: (url: string, opts: { origin: string }) => WebSocket;
   private methodAllowlist: Set<string>;
   private onDomainEvent?: (event: ControlPlaneDomainEvent) => void;
+  private useLegacyControlUiProfile = false;
+  private legacyProfileSwitchPromise: Promise<void> | null = null;
 
   constructor(options?: OpenClawAdapterOptions) {
     this.loadSettings = options?.loadSettings ?? loadGatewaySettings;
@@ -192,21 +198,28 @@ export class OpenClawGatewayAdapter {
     const id = String(this.nextRequestNumber++);
     const frame = { type: "req", id, method: normalizedMethod, params };
 
-    const response = await new Promise<unknown>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`Gateway request timed out for method: ${normalizedMethod}`));
-      }, REQUEST_TIMEOUT_MS);
-      this.pending.set(id, { resolve, reject, timer });
-      ws.send(JSON.stringify(frame), (err) => {
-        if (!err) return;
-        clearTimeout(timer);
-        this.pending.delete(id);
-        reject(new Error(`Failed to send gateway request for method: ${normalizedMethod}`));
+    try {
+      const response = await new Promise<unknown>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(id);
+          reject(new Error(`Gateway request timed out for method: ${normalizedMethod}`));
+        }, REQUEST_TIMEOUT_MS);
+        this.pending.set(id, { resolve, reject, timer });
+        ws.send(JSON.stringify(frame), (err) => {
+          if (!err) return;
+          clearTimeout(timer);
+          this.pending.delete(id);
+          reject(new Error(`Failed to send gateway request for method: ${normalizedMethod}`));
+        });
       });
-    });
-
-    return response as T;
+      return response as T;
+    } catch (error) {
+      if (!this.useLegacyControlUiProfile && this.isOperatorScopeMissingError(error)) {
+        await this.switchToLegacyControlUiProfile();
+        return this.request<T>(method, params);
+      }
+      throw error;
+    }
   }
 
   private async connect(): Promise<void> {
@@ -314,6 +327,7 @@ export class OpenClawGatewayAdapter {
   private sendConnectRequest(token: string): void {
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN || this.connectRequestId) return;
+    const legacy = this.useLegacyControlUiProfile;
     const id = String(this.nextRequestNumber++);
     this.connectRequestId = id;
     try {
@@ -326,10 +340,10 @@ export class OpenClawGatewayAdapter {
             minProtocol: CONNECT_PROTOCOL,
             maxProtocol: CONNECT_PROTOCOL,
             client: {
-              id: CONNECT_CLIENT_ID,
+              id: legacy ? CONNECT_CLIENT_ID_LEGACY : CONNECT_CLIENT_ID_BACKEND,
               version: "dev",
-              platform: "node",
-              mode: CONNECT_CLIENT_MODE,
+              platform: legacy ? CONNECT_CLIENT_PLATFORM_LEGACY : CONNECT_CLIENT_PLATFORM_BACKEND,
+              mode: legacy ? CONNECT_CLIENT_MODE_LEGACY : CONNECT_CLIENT_MODE_BACKEND,
             },
             role: "operator",
             scopes: [
@@ -353,6 +367,36 @@ export class OpenClawGatewayAdapter {
       } catch (closeErr) {
         console.error("Failed to close gateway socket after connect-send failure.", closeErr);
       }
+    }
+  }
+
+  private isOperatorScopeMissingError(error: unknown): boolean {
+    if (!(error instanceof ControlPlaneGatewayError)) return false;
+    if (error.code.trim().toUpperCase() !== "INVALID_REQUEST") return false;
+    const message = error.message.trim().toLowerCase();
+    return (
+      message.includes("missing scope: operator.read") ||
+      message.includes("missing scope: operator.write") ||
+      message.includes("missing scope: operator.admin")
+    );
+  }
+
+  private async switchToLegacyControlUiProfile(): Promise<void> {
+    if (this.useLegacyControlUiProfile) return;
+    if (this.legacyProfileSwitchPromise) {
+      await this.legacyProfileSwitchPromise;
+      return;
+    }
+    this.legacyProfileSwitchPromise = (async () => {
+      this.useLegacyControlUiProfile = true;
+      await this.stop();
+      this.stopping = false;
+      await this.start();
+    })();
+    try {
+      await this.legacyProfileSwitchPromise;
+    } finally {
+      this.legacyProfileSwitchPromise = null;
     }
   }
 

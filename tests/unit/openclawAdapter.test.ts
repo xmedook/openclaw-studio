@@ -222,4 +222,81 @@ describe("OpenClawGatewayAdapter", () => {
 
     await adapter.stop();
   });
+
+  it("falls back to legacy control-ui identity when operator scopes are rejected", async () => {
+    upstream = new WebSocketServer({ port: 0 });
+    const address = upstream.address();
+    if (!address || typeof address === "string") {
+      throw new Error("expected upstream server to provide a numeric port");
+    }
+    const upstreamUrl = `ws://127.0.0.1:${address.port}`;
+    let connectionCount = 0;
+    const connectedClientIds: string[] = [];
+    const connectedClientModes: string[] = [];
+
+    upstream.on("connection", (ws) => {
+      connectionCount += 1;
+      const activeConnection = connectionCount;
+      ws.send(JSON.stringify({ type: "event", event: "connect.challenge", payload: {} }));
+      ws.on("message", (raw) => {
+        const parsed = JSON.parse(String(raw ?? "")) as {
+          id?: string;
+          method?: string;
+          params?: {
+            client?: { id?: string; mode?: string };
+          };
+        };
+        if (parsed.method === "connect" && parsed.id) {
+          connectedClientIds.push(parsed.params?.client?.id ?? "unknown");
+          connectedClientModes.push(parsed.params?.client?.mode ?? "unknown");
+          ws.send(
+            JSON.stringify({
+              type: "res",
+              id: parsed.id,
+              ok: true,
+              payload: { type: "hello-ok", protocol: 3 },
+            })
+          );
+          return;
+        }
+        if (parsed.method === "status" && parsed.id) {
+          if (activeConnection === 1) {
+            ws.send(
+              JSON.stringify({
+                type: "res",
+                id: parsed.id,
+                ok: false,
+                error: { code: "INVALID_REQUEST", message: "missing scope: operator.read" },
+              })
+            );
+            return;
+          }
+          ws.send(
+            JSON.stringify({
+              type: "res",
+              id: parsed.id,
+              ok: true,
+              payload: { ok: true },
+            })
+          );
+        }
+      });
+    });
+
+    const adapter = new OpenClawGatewayAdapter({
+      loadSettings: () => ({ url: upstreamUrl, token: "tkn" }),
+    });
+
+    await adapter.start();
+    const result = await adapter.request<{ ok: boolean }>("status", {});
+
+    expect(result).toEqual({ ok: true });
+    await waitForCondition(() => connectedClientIds.length >= 2);
+    expect(connectedClientIds[0]).toBe("gateway-client");
+    expect(connectedClientModes[0]).toBe("backend");
+    expect(connectedClientIds[1]).toBe("openclaw-control-ui");
+    expect(connectedClientModes[1]).toBe("webchat");
+
+    await adapter.stop();
+  });
 });
