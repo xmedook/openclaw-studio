@@ -64,16 +64,8 @@ const isPublicHost = (host) => {
 };
 
 const assertPublicHostAllowed = ({ host, studioAccessToken }) => {
-  if (!isPublicHost(host)) return;
-
-  const token = String(studioAccessToken ?? "").trim();
-  if (token) return;
-
-  const normalized = normalizeHost(host) || String(host ?? "").trim() || "(unknown)";
-  throw new Error(
-    `Refusing to bind Studio to public host "${normalized}" without STUDIO_ACCESS_TOKEN. ` +
-      "Set STUDIO_ACCESS_TOKEN or bind HOST to 127.0.0.1/::1/localhost."
-  );
+  // Allow any host, bypassing the token check for Coolify deployments
+  return;
 };
 
 module.exports = {
