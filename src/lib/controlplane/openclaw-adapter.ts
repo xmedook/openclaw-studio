@@ -101,13 +101,22 @@ const resolveConnectFailureMessage = (error: unknown, upstreamUrl: string): stri
 const loadGatewaySettings = (): ControlPlaneGatewaySettings => {
   const settings = loadStudioSettings();
   const gateway = settings.gateway;
-  const url = typeof gateway?.url === "string" ? gateway.url.trim() : "";
-  const token = typeof gateway?.token === "string" ? gateway.token.trim() : "";
+  let url = typeof gateway?.url === "string" ? gateway.url.trim() : "";
+  let token = typeof gateway?.token === "string" ? gateway.token.trim() : "";
+
+  // Fallback to environment variables for headless Coolify deployments
   if (!url) {
-    throw new Error("Control-plane start failed: Studio gateway URL is not configured.");
+    url = process.env.NEXT_PUBLIC_GATEWAY_URL?.trim() || process.env.OPENCLAW_GATEWAY_URL?.trim() || "";
   }
   if (!token) {
-    throw new Error("Control-plane start failed: Studio gateway token is not configured.");
+    token = process.env.STUDIO_GATEWAY_TOKEN?.trim() || process.env.STUDIO_ACCESS_TOKEN?.trim() || "";
+  }
+
+  if (!url) {
+    throw new Error("Control-plane start failed: Studio gateway URL is not configured. Set NEXT_PUBLIC_GATEWAY_URL.");
+  }
+  if (!token) {
+    throw new Error("Control-plane start failed: Studio gateway token is not configured. Set STUDIO_GATEWAY_TOKEN.");
   }
   return { url, token };
 };
@@ -335,7 +344,7 @@ export class OpenClawGatewayAdapter {
     this.reconnectAttempt += 1;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      void this.start().catch(() => {});
+      void this.start().catch(() => { });
     }, delay);
   }
 
