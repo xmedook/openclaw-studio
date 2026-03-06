@@ -1,4 +1,5 @@
 import type { Page, Route, Request } from "@playwright/test";
+import type { StudioInstallContext } from "@/lib/studio/install-context";
 
 type StudioSettingsFixture = {
   version: 1;
@@ -9,6 +10,9 @@ type StudioSettingsFixture = {
 
 type StudioRouteEnvelopeFixture = {
   localGatewayDefaults?: { url: string; token: string } | null;
+  localGatewayDefaultsMeta?: { hasToken: boolean };
+  gatewayMeta?: { hasStoredToken: boolean };
+  installContext?: StudioInstallContext;
   domainApiModeEnabled?: boolean;
 };
 
@@ -32,6 +36,13 @@ const createStudioRoute = (
   const responseEnvelope = () => ({
     settings,
     localGatewayDefaults: envelope.localGatewayDefaults ?? null,
+    localGatewayDefaultsMeta: envelope.localGatewayDefaultsMeta ?? {
+      hasToken: Boolean(envelope.localGatewayDefaults?.token),
+    },
+    gatewayMeta: envelope.gatewayMeta ?? {
+      hasStoredToken: Boolean(settings.gateway?.token),
+    },
+    installContext: envelope.installContext,
     domainApiModeEnabled: envelope.domainApiModeEnabled ?? true,
   });
 
@@ -53,7 +64,18 @@ const createStudioRoute = (
     const next = { ...settings };
 
     if ("gateway" in patch) {
-      next.gateway = (patch.gateway as StudioSettingsFixture["gateway"]) ?? null;
+      const gatewayPatch = (patch.gateway ?? null) as
+        | { url?: string; token?: string }
+        | null;
+      if (gatewayPatch === null) {
+        next.gateway = null;
+      } else {
+        const existing = next.gateway ?? { url: "", token: "" };
+        next.gateway = {
+          url: gatewayPatch.url ?? existing.url,
+          token: gatewayPatch.token ?? existing.token,
+        };
+      }
     }
 
     if (patch.focused && typeof patch.focused === "object") {

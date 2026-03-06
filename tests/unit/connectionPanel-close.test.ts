@@ -3,6 +3,26 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ConnectionPanel } from "@/features/agents/components/ConnectionPanel";
 
+const buildProps = () => ({
+  savedGatewayUrl: "ws://127.0.0.1:18789",
+  draftGatewayUrl: "ws://127.0.0.1:18789",
+  token: "token",
+  hasStoredToken: true,
+  localGatewayDefaultsHasToken: false,
+  hasUnsavedChanges: false,
+  status: "disconnected" as const,
+  statusReason: null,
+  error: null,
+  testResult: null,
+  saving: false,
+  testing: false,
+  onGatewayUrlChange: vi.fn(),
+  onTokenChange: vi.fn(),
+  onSaveSettings: vi.fn(),
+  onTestConnection: vi.fn(),
+  onDisconnect: vi.fn(),
+});
+
 describe("ConnectionPanel close control", () => {
   afterEach(() => {
     cleanup();
@@ -10,17 +30,11 @@ describe("ConnectionPanel close control", () => {
 
   it("renders close control and calls handler when provided", () => {
     const onClose = vi.fn();
+    const props = buildProps();
 
     render(
       createElement(ConnectionPanel, {
-        gatewayUrl: "ws://127.0.0.1:18789",
-        token: "token",
-        status: "disconnected",
-        error: null,
-        onGatewayUrlChange: vi.fn(),
-        onTokenChange: vi.fn(),
-        onConnect: vi.fn(),
-        onDisconnect: vi.fn(),
+        ...props,
         onClose,
       })
     );
@@ -30,18 +44,7 @@ describe("ConnectionPanel close control", () => {
   });
 
   it("does not render close control when handler is missing", () => {
-    render(
-      createElement(ConnectionPanel, {
-        gatewayUrl: "ws://127.0.0.1:18789",
-        token: "token",
-        status: "disconnected",
-        error: null,
-        onGatewayUrlChange: vi.fn(),
-        onTokenChange: vi.fn(),
-        onConnect: vi.fn(),
-        onDisconnect: vi.fn(),
-      })
-    );
+    render(createElement(ConnectionPanel, buildProps()));
 
     expect(screen.queryByTestId("gateway-connection-close")).not.toBeInTheDocument();
   });
@@ -49,14 +52,7 @@ describe("ConnectionPanel close control", () => {
   it("renders semantic gateway status class markers", () => {
     const { rerender } = render(
       createElement(ConnectionPanel, {
-        gatewayUrl: "ws://127.0.0.1:18789",
-        token: "token",
-        status: "disconnected",
-        error: null,
-        onGatewayUrlChange: vi.fn(),
-        onTokenChange: vi.fn(),
-        onConnect: vi.fn(),
-        onDisconnect: vi.fn(),
+        ...buildProps(),
       })
     );
 
@@ -66,14 +62,8 @@ describe("ConnectionPanel close control", () => {
 
     rerender(
       createElement(ConnectionPanel, {
-        gatewayUrl: "ws://127.0.0.1:18789",
-        token: "token",
+        ...buildProps(),
         status: "connected",
-        error: null,
-        onGatewayUrlChange: vi.fn(),
-        onTokenChange: vi.fn(),
-        onConnect: vi.fn(),
-        onDisconnect: vi.fn(),
       })
     );
 

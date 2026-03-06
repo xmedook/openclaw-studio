@@ -5,11 +5,26 @@ import type {
   StudioSettings,
   StudioSettingsPatch,
 } from "@/lib/studio/settings";
+import type { StudioInstallContext } from "@/lib/studio/install-context";
 
 export type StudioSettingsResponse = {
   settings: StudioSettings;
   localGatewayDefaults?: StudioGatewaySettings | null;
+  localGatewayDefaultsMeta?: {
+    hasToken: boolean;
+  };
+  gatewayMeta?: {
+    hasStoredToken: boolean;
+  };
+  installContext?: StudioInstallContext;
   domainApiModeEnabled?: boolean;
+  runtimeReconnect?: {
+    attempted: boolean;
+    restarted: boolean;
+    reason?: string;
+    previousStatus?: string;
+    error?: string;
+  } | null;
 };
 
 type FocusedPatch = Record<string, Partial<StudioFocusedPreference> | null>;

@@ -1,19 +1,43 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, Eye, EyeOff, Loader2 } from "lucide-react";
 import type { GatewayStatus } from "@/lib/gateway/gateway-status";
-import { isLocalGatewayUrl } from "@/lib/gateway/local-gateway";
+import {
+  isStudioLikelyRemote,
+  resolveDefaultSetupScenario,
+  resolveGatewayConnectionWarnings,
+  type StudioConnectionWarning,
+  type StudioInstallContext,
+  type StudioSetupScenario,
+} from "@/lib/studio/install-context";
 import type { StudioGatewaySettings } from "@/lib/studio/settings";
+import { resolveGatewayStatusBadgeClass, resolveGatewayStatusLabel } from "./colorSemantics";
 
 type GatewayConnectScreenProps = {
-  gatewayUrl: string;
+  savedGatewayUrl: string;
+  draftGatewayUrl: string;
   token: string;
   localGatewayDefaults: StudioGatewaySettings | null;
+  localGatewayDefaultsHasToken: boolean;
+  hasStoredToken: boolean;
+  hasUnsavedChanges: boolean;
+  installContext: StudioInstallContext;
   status: GatewayStatus;
+  statusReason: string | null;
   error: string | null;
+  testResult:
+    | {
+        kind: "success" | "error";
+        message: string;
+      }
+    | null;
+  saving: boolean;
+  testing: boolean;
   onGatewayUrlChange: (value: string) => void;
   onTokenChange: (value: string) => void;
   onUseLocalDefaults: () => void;
-  onConnect: () => void;
+  onSaveSettings: () => void;
+  onTestConnection: () => void;
+  onDisconnect: () => void;
 };
 
 const resolveLocalGatewayPort = (gatewayUrl: string): number => {
@@ -26,52 +50,139 @@ const resolveLocalGatewayPort = (gatewayUrl: string): number => {
 };
 
 export const GatewayConnectScreen = ({
-  gatewayUrl,
+  savedGatewayUrl,
+  draftGatewayUrl,
   token,
   localGatewayDefaults,
+  localGatewayDefaultsHasToken,
+  hasStoredToken,
+  hasUnsavedChanges,
+  installContext,
   status,
+  statusReason,
   error,
+  testResult,
+  saving,
+  testing,
   onGatewayUrlChange,
   onTokenChange,
   onUseLocalDefaults,
-  onConnect,
+  onSaveSettings,
+  onTestConnection,
+  onDisconnect,
 }: GatewayConnectScreenProps) => {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [showToken, setShowToken] = useState(false);
-  const isLocal = useMemo(() => isLocalGatewayUrl(gatewayUrl), [gatewayUrl]);
-  const localPort = useMemo(() => resolveLocalGatewayPort(gatewayUrl), [gatewayUrl]);
+  const inferredScenario = useMemo(
+    () =>
+      resolveDefaultSetupScenario({
+        installContext,
+        gatewayUrl: draftGatewayUrl || savedGatewayUrl,
+      }),
+    [draftGatewayUrl, installContext, savedGatewayUrl]
+  );
+  const [selectedScenario, setSelectedScenario] = useState<StudioSetupScenario>(inferredScenario);
+  const [scenarioTouched, setScenarioTouched] = useState(false);
+  useEffect(() => {
+    if (scenarioTouched) return;
+    setSelectedScenario(inferredScenario);
+  }, [inferredScenario, scenarioTouched]);
+  const localPort = useMemo(
+    () => resolveLocalGatewayPort(draftGatewayUrl || savedGatewayUrl),
+    [draftGatewayUrl, savedGatewayUrl]
+  );
   const localGatewayCommand = useMemo(
-    () => `npx openclaw gateway run --bind loopback --port ${localPort} --verbose`,
+    () => `openclaw gateway --port ${localPort}`,
     [localPort]
   );
-  const localGatewayCommandPnpm = useMemo(
-    () => `pnpm openclaw gateway run --bind loopback --port ${localPort} --verbose`,
+  const gatewayServeCommand = useMemo(
+    () => `tailscale serve --yes --bg --https 443 http://127.0.0.1:${localPort}`,
     [localPort]
+  );
+  const studioServeCommand = "tailscale serve --yes --bg --https 443 http://127.0.0.1:3000";
+  const studioOpenUrl = installContext.tailscale.loggedIn && installContext.tailscale.dnsName
+    ? `https://${installContext.tailscale.dnsName}`
+    : "https://<studio-host>.ts.net";
+  const studioSshTarget =
+    installContext.tailscale.dnsName ||
+    installContext.studioHost.publicHosts[0] ||
+    "<studio-host>";
+  const studioTunnelCommand = `ssh -L 3000:127.0.0.1:3000 ${studioSshTarget}`;
+  const gatewayTunnelCommand = `ssh -L ${localPort}:127.0.0.1:${localPort} user@<gateway-host>`;
+  const warnings = useMemo<StudioConnectionWarning[]>(
+    () =>
+      resolveGatewayConnectionWarnings({
+        gatewayUrl: draftGatewayUrl,
+        installContext,
+        scenario: selectedScenario,
+        hasStoredToken,
+        hasLocalGatewayToken: localGatewayDefaultsHasToken,
+      }),
+    [
+      draftGatewayUrl,
+      hasStoredToken,
+      installContext,
+      localGatewayDefaultsHasToken,
+      selectedScenario,
+    ]
   );
   const statusCopy = useMemo(() => {
-    if (status === "connecting" && isLocal) {
-      return `Local gateway detected on port ${localPort}. Connecting…`;
+    if (status === "connected") {
+      return "Studio is connected to OpenClaw.";
     }
     if (status === "connecting") {
-      return "Connecting to remote gateway…";
+      return "Studio is connecting to OpenClaw…";
     }
-    if (isLocal) {
-      return "No local gateway found.";
+    if (status === "reconnecting") {
+      return "Studio lost the gateway connection and is retrying…";
     }
-    return "Not connected to a gateway.";
-  }, [isLocal, localPort, status]);
-  const connectDisabled = status === "connecting";
-  const connectLabel = connectDisabled ? "Connecting…" : "Connect";
+    if (status === "error") {
+      return "Studio could not connect to the saved gateway settings.";
+    }
+    return "Choose how this Studio should reach OpenClaw.";
+  }, [status]);
+  const statusSubcopy = useMemo(() => {
+    const normalizedReason = statusReason?.trim() ?? "";
+    if (normalizedReason === "gateway_closed") {
+      return "The gateway socket closed. Studio will keep retrying until it reconnects.";
+    }
+    if (normalizedReason) return normalizedReason;
+    if (selectedScenario === "same-cloud-host") {
+      return "Separate the two links: how you open Studio, and how Studio reaches OpenClaw.";
+    }
+    if (selectedScenario === "remote-gateway") {
+      return "On your laptop, Studio stays local. Only the upstream gateway needs to be remote.";
+    }
+    return "When Studio and OpenClaw share a host, the upstream should usually stay on localhost.";
+  }, [selectedScenario, statusReason]);
+  const actionBusy = saving || testing;
+  const saveLabel = saving ? "Saving…" : "Save settings";
+  const testLabel = testing ? "Testing…" : "Test connection";
   const statusDotClass =
     status === "connected"
       ? "ui-dot-status-connected"
-      : status === "connecting"
+      : status === "connecting" || status === "reconnecting"
         ? "ui-dot-status-connecting"
         : "ui-dot-status-disconnected";
+  const tokenHelper = hasStoredToken
+    ? "A token is already stored on this Studio host. Leave this blank to keep it."
+    : localGatewayDefaultsHasToken
+      ? "A local OpenClaw token is available on this host. Leave this blank to use it."
+      : "Enter the gateway token Studio should use.";
+  const remoteStudio = isStudioLikelyRemote(installContext);
 
-  const copyLocalCommand = async () => {
+  const setScenario = (value: StudioSetupScenario) => {
+    setScenarioTouched(true);
+    setSelectedScenario(value);
+  };
+
+  const applyLoopbackUrl = () => {
+    onGatewayUrlChange(`ws://localhost:${localPort}`);
+  };
+
+  const copyCommand = async (value: string) => {
     try {
-      await navigator.clipboard.writeText(localGatewayCommand);
+      await navigator.clipboard.writeText(value);
       setCopyStatus("copied");
       window.setTimeout(() => setCopyStatus("idle"), 1200);
     } catch {
@@ -80,157 +191,335 @@ export const GatewayConnectScreen = ({
     }
   };
 
-  const commandField = (
+  const commandField = (params: {
+    value: string;
+    label: string;
+    helper?: string;
+  }) => (
     <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-mono text-[10px] font-semibold tracking-[0.06em] text-muted-foreground">
+          {params.label}
+        </p>
+        <button
+          type="button"
+          className="ui-btn-ghost h-7 px-2 text-[11px]"
+          onClick={() => void copyCommand(params.value)}
+        >
+          {copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy"}
+        </button>
+      </div>
       <div className="ui-command-surface flex items-center gap-2 rounded-md px-3 py-2">
         <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px]">
-          {localGatewayCommand}
+          {params.value}
         </code>
         <button
           type="button"
           className="ui-btn-icon ui-command-copy h-7 w-7 shrink-0"
-          onClick={copyLocalCommand}
-          aria-label="Copy local gateway command"
+          onClick={() => void copyCommand(params.value)}
+          aria-label={`Copy ${params.label}`}
           title="Copy command"
         >
           {copyStatus === "copied" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
         </button>
       </div>
-      {copyStatus === "copied" ? (
-        <p className="text-xs text-muted-foreground">Copied</p>
-      ) : copyStatus === "failed" ? (
-        <p className="ui-text-danger text-xs">Could not copy command.</p>
-      ) : (
-        <p className="text-xs leading-snug text-muted-foreground">
-          In a source checkout, use <span className="font-mono">{localGatewayCommandPnpm}</span>.
-        </p>
-      )}
+      {params.helper ? (
+        <p className="text-xs leading-snug text-muted-foreground">{params.helper}</p>
+      ) : null}
     </div>
   );
 
-  const remoteForm = (
-    <div className="mt-2.5 flex flex-col gap-3">
-      <label className="flex flex-col gap-1 text-[11px] font-medium text-foreground/80">
-        Upstream URL
-        <input
-          className="ui-input h-10 rounded-md px-4 font-sans text-sm text-foreground outline-none"
-          type="text"
-          value={gatewayUrl}
-          onChange={(event) => onGatewayUrlChange(event.target.value)}
-          placeholder="wss://your-gateway.example.com"
-          spellCheck={false}
-        />
-      </label>
+  const scenarioButtonClass = (scenario: StudioSetupScenario): string => {
+    return `ui-card rounded-xl px-4 py-3 text-left transition ${
+      selectedScenario === scenario
+        ? "ui-card-selected border-primary/60"
+        : "border border-border/70 hover:border-border"
+    }`;
+  };
 
-      <div className="space-y-0.5 text-xs text-muted-foreground/90">
-        <p className="font-medium text-foreground/85">Using Tailscale?</p>
-        <p>
-          URL: <span className="font-mono">wss://&lt;your-tailnet-host&gt;</span>
-        </p>
+  const connectionForm = (
+    <div className="ui-card px-4 py-4 sm:px-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="font-mono text-[10px] font-semibold tracking-[0.06em] text-muted-foreground">
+            Studio to OpenClaw
+          </p>
+          <p className="mt-1 text-sm text-foreground/85">
+            Save a gateway URL and token for this Studio host.
+          </p>
+        </div>
+        <span
+          className={`ui-chip inline-flex items-center px-3 py-1 font-mono text-[10px] font-semibold tracking-[0.08em] ${resolveGatewayStatusBadgeClass(status)}`}
+          data-status={status}
+        >
+          {resolveGatewayStatusLabel(status)}
+        </span>
       </div>
 
-      <label className="flex flex-col gap-1 text-[11px] font-medium text-foreground/80">
-        Upstream token
-        <div className="relative">
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1.35fr_1fr]">
+        <label className="flex flex-col gap-1 text-[11px] font-medium text-foreground/80">
+          Upstream URL
           <input
-            className="ui-input h-10 w-full rounded-md px-4 pr-10 font-sans text-sm text-foreground outline-none"
-            type={showToken ? "text" : "password"}
-            value={token}
-            onChange={(event) => onTokenChange(event.target.value)}
-            placeholder="gateway token"
+            className="ui-input h-10 rounded-md px-4 font-sans text-sm text-foreground outline-none"
+            type="text"
+            value={draftGatewayUrl}
+            onChange={(event) => onGatewayUrlChange(event.target.value)}
+            placeholder={
+              selectedScenario === "remote-gateway"
+                ? "wss://your-gateway.ts.net"
+                : `ws://localhost:${localPort}`
+            }
             spellCheck={false}
           />
-          <button
-            type="button"
-            className="ui-btn-icon absolute inset-y-0 right-1 my-auto h-8 w-8 border-transparent bg-transparent text-muted-foreground hover:bg-transparent hover:text-foreground"
-            aria-label={showToken ? "Hide token" : "Show token"}
-            onClick={() => setShowToken((prev) => !prev)}
-          >
-            {showToken ? (
-              <EyeOff className="h-4 w-4 transition-transform duration-150" />
-            ) : (
-              <Eye className="h-4 w-4 transition-transform duration-150" />
-            )}
-          </button>
-        </div>
-      </label>
+        </label>
 
-      <button
-        type="button"
-        className="ui-btn-primary mt-1 h-11 w-full px-4 text-xs font-semibold tracking-[0.05em] disabled:cursor-not-allowed disabled:opacity-60"
-        onClick={onConnect}
-        disabled={connectDisabled || !gatewayUrl.trim()}
-      >
-        {connectLabel}
-      </button>
+        <label className="flex flex-col gap-1 text-[11px] font-medium text-foreground/80">
+          Upstream token
+          <div className="relative">
+            <input
+              className="ui-input h-10 w-full rounded-md px-4 pr-10 font-sans text-sm text-foreground outline-none"
+              type={showToken ? "text" : "password"}
+              value={token}
+              onChange={(event) => onTokenChange(event.target.value)}
+              placeholder={hasStoredToken || localGatewayDefaultsHasToken ? "keep existing token" : "gateway token"}
+              spellCheck={false}
+            />
+            <button
+              type="button"
+              className="ui-btn-icon absolute inset-y-0 right-1 my-auto h-8 w-8 border-transparent bg-transparent text-muted-foreground hover:bg-transparent hover:text-foreground"
+              aria-label={showToken ? "Hide token" : "Show token"}
+              onClick={() => setShowToken((prev) => !prev)}
+            >
+              {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+        </label>
+      </div>
 
-      {status === "connecting" ? (
-        <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Connecting…
+      <p className="mt-2 text-xs leading-snug text-muted-foreground">{tokenHelper}</p>
+
+      {hasUnsavedChanges ? (
+        <p className="mt-2 font-mono text-[10px] font-semibold tracking-[0.06em] text-muted-foreground">
+          Unsaved changes
         </p>
       ) : null}
-      {error ? <p className="ui-text-danger text-xs leading-snug">{error}</p> : null}
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="ui-btn-primary h-10 px-4 text-xs font-semibold tracking-[0.05em] disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={() => void onSaveSettings()}
+          disabled={actionBusy || !draftGatewayUrl.trim()}
+        >
+          {saveLabel}
+        </button>
+        <button
+          type="button"
+          className="ui-btn-secondary h-10 px-4 text-xs font-semibold tracking-[0.05em] text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={() => void onTestConnection()}
+          disabled={actionBusy || !draftGatewayUrl.trim()}
+        >
+          {testLabel}
+        </button>
+        {status === "connected" ? (
+          <button
+            type="button"
+            className="ui-btn-ghost h-10 px-4 text-xs font-semibold tracking-[0.05em] text-foreground"
+            onClick={() => void onDisconnect()}
+            disabled={actionBusy}
+          >
+            Disconnect
+          </button>
+        ) : null}
+      </div>
     </div>
   );
-
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-[820px] flex-1 flex-col gap-5">
       <div className="ui-card px-4 py-2">
-        <div className="flex items-center gap-2">
-          {status === "connecting" ? (
+        <div className="flex items-start gap-3">
+          {status === "connecting" || status === "reconnecting" ? (
             <Loader2 className="h-4 w-4 animate-spin text-[color:var(--status-connecting-fg)]" />
           ) : (
-            <span
-              className={`h-2.5 w-2.5 ${statusDotClass}`}
-            />
+            <span className={`mt-1 h-2.5 w-2.5 ${statusDotClass}`} />
           )}
-          <p className="text-sm font-semibold text-foreground">{statusCopy}</p>
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-foreground">{statusCopy}</p>
+            <p className="text-sm text-muted-foreground">{statusSubcopy}</p>
+          </div>
         </div>
       </div>
 
-      <div className="ui-card px-4 py-5 sm:px-6">
-        <div>
-          <p className="font-mono text-[10px] font-medium tracking-[0.06em] text-muted-foreground">
-            Remote gateway (recommended)
-          </p>
-          <p className="mt-2 text-sm text-foreground/85">Default: enter your URL and token to connect.</p>
-        </div>
-        {remoteForm}
-      </div>
-
-      <div className="ui-card px-4 py-4 sm:px-6 sm:py-5">
-        <div className="space-y-1.5">
+      <div className="grid gap-3 md:grid-cols-3">
+        <button type="button" className={scenarioButtonClass("same-computer")} onClick={() => setScenario("same-computer")}>
           <p className="font-mono text-[10px] font-semibold tracking-[0.06em] text-muted-foreground">
-            Run locally (optional)
+            Everything on this computer
           </p>
-          <p className="text-sm text-foreground/85">
-            Start a local gateway process on this machine, then connect.
+          <p className="mt-2 text-sm text-foreground/85">
+            Studio and OpenClaw both run on the same machine.
           </p>
+        </button>
+        <button type="button" className={scenarioButtonClass("remote-gateway")} onClick={() => setScenario("remote-gateway")}>
+          <p className="font-mono text-[10px] font-semibold tracking-[0.06em] text-muted-foreground">
+            Studio here, OpenClaw in the cloud
+          </p>
+          <p className="mt-2 text-sm text-foreground/85">
+            Keep Studio on your laptop and point it at a remote gateway.
+          </p>
+        </button>
+        <button type="button" className={scenarioButtonClass("same-cloud-host")} onClick={() => setScenario("same-cloud-host")}>
+          <p className="font-mono text-[10px] font-semibold tracking-[0.06em] text-muted-foreground">
+            Studio and OpenClaw on the same cloud machine
+          </p>
+          <p className="mt-2 text-sm text-foreground/85">
+            Use localhost for the upstream, then solve how you open Studio.
+          </p>
+        </button>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <div className="ui-card px-4 py-4 sm:px-5">
+          <p className="font-mono text-[10px] font-semibold tracking-[0.06em] text-muted-foreground">
+            How you open Studio
+          </p>
+          {selectedScenario === "same-computer" || selectedScenario === "remote-gateway" ? (
+            <div className="mt-3 space-y-3">
+              <p className="text-sm text-foreground/85">
+                Open <span className="font-mono">http://localhost:3000</span> on this computer.
+              </p>
+              <p className="text-xs leading-snug text-muted-foreground">
+                Only the OpenClaw upstream changes in this setup. Studio itself stays local.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-3 space-y-3">
+              <p className="text-sm text-foreground/85">
+                Studio is on a remote host. <span className="font-mono">http://localhost:3000</span> only opens on that machine.
+              </p>
+              {commandField({
+                value: studioServeCommand,
+                label: "Recommended: Tailscale Serve",
+                helper: `Then open ${studioOpenUrl} from your laptop or phone.`,
+              })}
+              {commandField({
+                value: studioTunnelCommand,
+                label: "Fallback: SSH tunnel",
+                helper: "Use this if Tailscale is not available yet.",
+              })}
+              {remoteStudio && installContext.tailscale.loggedIn === false ? (
+                <div className="ui-card rounded-md px-3 py-3 text-sm text-muted-foreground">
+                  Tailscale was not detected on this Studio host. Beginners will usually have a much easier time with Tailscale Serve than with public binds.
+                </div>
+              ) : null}
+              {installContext.studioHost.publicHosts.length > 0 ? (
+                <div className="ui-card rounded-md px-3 py-3 text-sm text-muted-foreground">
+                  This Studio is already bound beyond loopback. If you keep it public, <span className="font-mono">STUDIO_ACCESS_TOKEN</span> is required and each browser must open <span className="font-mono">/?access_token=...</span> once.
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
-        <div className="mt-3 space-y-3">
-          {commandField}
-          {localGatewayDefaults ? (
-            <div className="ui-input rounded-md px-3 py-3">
-              <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">
-                  Use token from <span className="font-mono">~/.openclaw/openclaw.json</span>.
-                </p>
-                <p className="font-mono text-[11px] text-foreground/85">
-                  {localGatewayDefaults.url}
-                </p>
+
+        <div className="ui-card px-4 py-4 sm:px-5">
+          <p className="font-mono text-[10px] font-semibold tracking-[0.06em] text-muted-foreground">
+            How Studio reaches OpenClaw
+          </p>
+          {selectedScenario === "remote-gateway" ? (
+            <div className="mt-3 space-y-3">
+              <p className="text-sm text-foreground/85">
+                Recommended: keep the remote gateway on loopback and expose it with Tailscale Serve.
+              </p>
+              {commandField({
+                value: gatewayServeCommand,
+                label: "On the gateway host",
+                helper: "In Studio, use wss://<gateway-host>.ts.net plus your gateway token.",
+              })}
+              {commandField({
+                value: gatewayTunnelCommand,
+                label: "Fallback: SSH tunnel",
+                helper: `Then point Studio to ws://localhost:${localPort}.`,
+              })}
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  className="ui-btn-secondary h-9 w-full px-3 text-xs font-semibold tracking-[0.05em] text-foreground"
-                  onClick={onUseLocalDefaults}
+                  className="ui-btn-secondary h-9 px-3 text-xs font-semibold tracking-[0.05em] text-foreground"
+                  onClick={applyLoopbackUrl}
                 >
-                  Use local defaults
+                  Use SSH tunnel URL
                 </button>
               </div>
             </div>
-          ) : null}
+          ) : (
+            <div className="mt-3 space-y-3">
+              <p className="text-sm text-foreground/85">
+                Keep the upstream local to the Studio host:{" "}
+                <span className="font-mono">{`ws://localhost:${localPort}`}</span>.
+              </p>
+              {commandField({
+                value: localGatewayCommand,
+                label: "Start OpenClaw on this host",
+                helper: "Use the same machine for both processes, even if that machine is a cloud VM.",
+              })}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="ui-btn-secondary h-9 px-3 text-xs font-semibold tracking-[0.05em] text-foreground"
+                  onClick={applyLoopbackUrl}
+                >
+                  Use localhost upstream
+                </button>
+                {localGatewayDefaults ? (
+                  <button
+                    type="button"
+                    className="ui-btn-secondary h-9 px-3 text-xs font-semibold tracking-[0.05em] text-foreground"
+                    onClick={onUseLocalDefaults}
+                  >
+                    Use local defaults
+                  </button>
+                ) : null}
+              </div>
+              {localGatewayDefaults ? (
+                <div className="ui-card rounded-md px-3 py-3 text-sm text-muted-foreground">
+                  Local OpenClaw settings were detected at <span className="font-mono">~/.openclaw/openclaw.json</span>. Studio can reuse that local URL and token.
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
+
+      {warnings.length > 0 ? (
+        <div className="space-y-2">
+          {warnings.map((warning) => (
+            <div
+              key={warning.id}
+              className={
+                warning.tone === "warn"
+                  ? "ui-alert-danger rounded-md px-4 py-2 text-sm"
+                  : "ui-card rounded-md px-4 py-2 text-sm text-muted-foreground"
+              }
+            >
+              {warning.message}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {connectionForm}
+
+      {testResult ? (
+        <div
+          className={
+            testResult.kind === "error"
+              ? "ui-alert-danger rounded-md px-4 py-2 text-sm"
+              : "ui-card rounded-md px-4 py-2 text-sm text-muted-foreground"
+          }
+        >
+          {testResult.message}
+        </div>
+      ) : null}
+
+      {error ? <p className="ui-text-danger text-sm leading-snug">{error}</p> : null}
     </div>
   );
 };

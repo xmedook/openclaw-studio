@@ -18,6 +18,12 @@ export type RuntimeEventStreamSource = {
 
 type RuntimeEventStreamFactory = (url: string) => RuntimeEventStreamSource;
 
+export type RuntimeStatusStreamEvent = {
+  status?: unknown;
+  reason?: unknown;
+  asOf?: unknown;
+};
+
 const createBrowserRuntimeEventStreamSource: RuntimeEventStreamFactory = (url) =>
   new EventSource(url) as unknown as RuntimeEventStreamSource;
 
@@ -70,7 +76,7 @@ const withLastEventId = (url: string, lastEventId: number | null): string => {
 
 export function useRuntimeEventStream(params: {
   onGatewayEvent: (event: EventFrame) => void;
-  onRuntimeStatus: () => void;
+  onRuntimeStatus: (event: RuntimeStatusStreamEvent | null) => void;
   url?: string;
   resumeKey?: string;
   createSource?: RuntimeEventStreamFactory;
@@ -128,7 +134,17 @@ export function useRuntimeEventStream(params: {
 
     source.addEventListener("runtime.status", (raw) => {
       recordLastEventId(raw);
-      onRuntimeStatusRef.current();
+      const data = toText(raw?.data);
+      if (!data) {
+        onRuntimeStatusRef.current(null);
+        return;
+      }
+      try {
+        const parsed = JSON.parse(data) as RuntimeStatusStreamEvent;
+        onRuntimeStatusRef.current(parsed);
+      } catch {
+        onRuntimeStatusRef.current(null);
+      }
     });
 
     source.onerror = () => {};

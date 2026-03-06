@@ -32,12 +32,18 @@ describe("studio settings route", () => {
     const body = (await response.json()) as {
       settings?: Record<string, unknown>;
       localGatewayDefaults?: unknown;
+      localGatewayDefaultsMeta?: { hasToken?: unknown };
+      gatewayMeta?: { hasStoredToken?: unknown };
+      installContext?: Record<string, unknown>;
       domainApiModeEnabled?: unknown;
     };
 
     expect(response.status).toBe(200);
     expect(body.settings?.gateway).toBe(null);
     expect(body.localGatewayDefaults ?? null).toBeNull();
+    expect(body.localGatewayDefaultsMeta?.hasToken).toBe(false);
+    expect(body.gatewayMeta?.hasStoredToken).toBe(false);
+    expect(body.installContext).toBeTruthy();
     expect(typeof body.domainApiModeEnabled).toBe("boolean");
     expect(body.settings?.version).toBe(1);
   });
@@ -67,6 +73,8 @@ describe("studio settings route", () => {
     const body = (await response.json()) as {
       settings?: { gateway?: { url?: string; token?: string } | null };
       localGatewayDefaults?: { url?: string; token?: string } | null;
+      localGatewayDefaultsMeta?: { hasToken?: unknown };
+      gatewayMeta?: { hasStoredToken?: unknown };
     };
 
     expect(response.status).toBe(200);
@@ -74,6 +82,8 @@ describe("studio settings route", () => {
       url: "ws://localhost:18791",
       token: "",
     });
+    expect(body.localGatewayDefaultsMeta?.hasToken).toBe(true);
+    expect(body.gatewayMeta?.hasStoredToken).toBe(true);
     expect(body.settings?.gateway).toEqual({
       url: "ws://localhost:18791",
       token: "",
@@ -110,10 +120,12 @@ describe("studio settings route", () => {
     const getResponse = await GET();
     const body = (await getResponse.json()) as {
       settings?: { gateway?: { url?: string; token?: string } | null };
+      gatewayMeta?: { hasStoredToken?: unknown };
     };
 
     expect(getResponse.status).toBe(200);
     expect(body.settings?.gateway).toEqual({ url: "ws://example.test:1234", token: "" });
+    expect(body.gatewayMeta?.hasStoredToken).toBe(true);
 
     const settingsPath = path.join(tempDir, "openclaw-studio", "settings.json");
     expect(fs.existsSync(settingsPath)).toBe(true);
@@ -149,9 +161,11 @@ describe("studio settings route", () => {
     const getResponse = await GET();
     const body = (await getResponse.json()) as {
       settings?: { gateway?: { url?: string; token?: string } | null };
+      gatewayMeta?: { hasStoredToken?: unknown };
     };
     expect(getResponse.status).toBe(200);
     expect(body.settings?.gateway).toEqual({ url: "ws://new.example:18789", token: "" });
+    expect(body.gatewayMeta?.hasStoredToken).toBe(true);
 
     const persisted = JSON.parse(
       fs.readFileSync(path.join(tempDir, "openclaw-studio", "settings.json"), "utf8")

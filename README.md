@@ -20,10 +20,17 @@ If your Gateway is already running, pick the scenario that matches where your Ga
 
 All setups use the same install/run path (recommended): `npx -y openclaw-studio@latest`
 
+Two links matter:
+
+1. Browser -> Studio
+2. Studio -> Gateway
+
+`localhost` always means "the Studio host." If Studio and OpenClaw share a machine, the upstream should usually stay at `ws://localhost:18789` even when that machine is a cloud VM.
+
 ## Requirements
 
 - Node.js 20.9+ (LTS recommended)
-- An OpenClaw Gateway URL + token
+- An OpenClaw Gateway URL + token, or a local OpenClaw install Studio can detect
 - Tailscale (optional, recommended for remote access)
 
 ## A) Gateway local, Studio local (same computer)
@@ -50,6 +57,9 @@ Recommended (Tailscale Serve on the gateway host):
 2. In Studio (on your laptop):
    - Upstream URL: `wss://<gateway-host>.ts.net`
    - Upstream Token: your gateway token
+3. Keep in mind:
+   - Studio still needs a gateway token here, even if the OpenClaw Control UI can use Tailscale identity headers
+   - Raw `ws://<private-ip>:18789` is an advanced/manual path and may need extra OpenClaw origin configuration
 
 Alternative (SSH tunnel):
 
@@ -60,21 +70,23 @@ Alternative (SSH tunnel):
 
 ## C) Studio in the cloud, Gateway in the cloud
 
-This is the “always-on” setup. The easiest secure version is to keep the Gateway private and expose Studio over Tailscale.
+This is the “always-on” setup. When Studio and OpenClaw run on the same cloud VM, keep the OpenClaw upstream local and solve browser access to Studio separately.
 
 1. On the VPS that will run Studio:
    - Run Studio (same commands as above).
-2. Expose Studio over tailnet HTTPS:
-   - `tailscale serve --yes --bg --https 443 http://127.0.0.1:3000`
-3. Open Studio from your laptop/phone:
-   - `https://<studio-host>.ts.net`
-4. In Studio, set:
-   - Upstream URL: `wss://<gateway-host>.ts.net` (or whatever your gateway is reachable at from the Studio host)
+2. If OpenClaw is on that same VPS, keep Studio's upstream set to:
+   - Upstream URL: `ws://localhost:18789`
    - Upstream Token: your gateway token
+3. Expose Studio over tailnet HTTPS:
+   - `tailscale serve --yes --bg --https 443 http://127.0.0.1:3000`
+4. Open Studio from your laptop/phone:
+   - `https://<studio-host>.ts.net`
+5. Only use a remote upstream like `wss://<gateway-host>.ts.net` if Studio and OpenClaw are on different machines.
 
 Notes:
 - Avoid serving Studio behind `/studio` unless you configure `basePath` and rebuild.
 - If Studio is reachable beyond loopback, `STUDIO_ACCESS_TOKEN` is required.
+- If you bind Studio beyond loopback, open `/?access_token=...` once from each new browser to set the Studio cookie.
 
 ## How It Connects (Mental Model)
 
@@ -85,6 +97,8 @@ OpenClaw Studio now runs one runtime architecture with **two primary paths**:
 
 This is why `ws://localhost:18789` means “gateway on the Studio host”, not “gateway on your phone”.
 
+If Studio is running on a remote machine over SSH and the terminal says `Open in browser: http://localhost:3000`, that `localhost` is the remote machine. Use Tailscale Serve or an SSH tunnel to open Studio from your own laptop.
+
 ## Install from source (advanced)
 
 ```bash
@@ -93,6 +107,14 @@ cd openclaw-studio
 npm install
 npm run dev
 ```
+
+Optional setup helper in a source checkout:
+
+```bash
+npm run studio:setup
+```
+
+That writes the saved gateway URL/token for this Studio host without opening the UI first.
 
 ## Configuration
 
@@ -132,7 +154,10 @@ See `docs/color-system.md` for the semantic color contract, status mappings, and
 
 If the UI loads but “Connect” fails, it’s usually Studio->Gateway:
 - Confirm the upstream URL/token in the UI (stored on the Studio host at `<state dir>/openclaw-studio/settings.json`).
+- If Studio is on a remote host, remember that `ws://localhost:18789` means "OpenClaw on the Studio host," not "OpenClaw on your laptop."
+- If Studio is on a remote host and you cannot open `http://localhost:3000` from your laptop, expose Studio with `tailscale serve --yes --bg --https 443 http://127.0.0.1:3000` or use `ssh -L 3000:127.0.0.1:3000 user@host`.
 - `EPROTO` / “wrong version number”: you used `wss://...` to a non-TLS endpoint (use `ws://...`, or put the gateway behind HTTPS).
+- `.ts.net` + `ws://`: use `wss://` instead.
 - Assets 404 under `/studio`: serve Studio at `/` or configure `basePath` and rebuild.
 - 401 “Studio access token required”: `STUDIO_ACCESS_TOKEN` is enabled; open `/?access_token=...` once to set the cookie.
 - Helpful error codes: `studio.gateway_url_missing`, `studio.gateway_token_missing`, `studio.upstream_error`, `studio.upstream_closed`.

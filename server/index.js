@@ -7,6 +7,7 @@ const { spawnSync } = require("node:child_process");
 const next = require("next");
 
 const { createAccessGate } = require("./access-gate");
+const { detectInstallContext, buildStartupGuidance } = require("./install-context");
 const { assertPublicHostAllowed, resolveHosts } = require("./network-policy");
 
 const resolvePort = () => {
@@ -100,6 +101,22 @@ async function main() {
 
   const browserUrl = `http://${hostForBrowser}:${port}`;
   console.info(`Open in browser: ${browserUrl}`);
+  try {
+    const installContext = await detectInstallContext(process.env);
+    const startupGuidance = buildStartupGuidance({
+      installContext,
+      port,
+    });
+    if (startupGuidance.length > 0) {
+      console.info("");
+      console.info("Studio access guidance:");
+      for (const line of startupGuidance) {
+        console.info(`- ${line}`);
+      }
+    }
+  } catch (error) {
+    console.error("Failed to print Studio access guidance.", error);
+  }
 }
 
 main().catch((err) => {

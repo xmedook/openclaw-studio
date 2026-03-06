@@ -2,6 +2,34 @@
 
 This doc describes the current Studio IA and behavior.
 
+## Connection Onboarding
+
+### First-run connection screen
+- Studio now uses a full-screen connection flow before agent data loads.
+- The onboarding teaches two separate links:
+  1. Browser -> Studio
+  2. Studio -> OpenClaw
+- The screen offers three setup branches:
+  1. Everything on this computer
+  2. Studio here, OpenClaw in the cloud
+  3. Studio and OpenClaw on the same cloud machine
+
+### Core rule
+- `localhost` always means the Studio host.
+- If Studio and OpenClaw share a machine, the upstream should usually stay at `ws://localhost:18789`, even if that machine is a VPS.
+
+### Gateway connection actions
+- Connection fields are now draft-based rather than saved on every keystroke.
+- The user can:
+  - Save settings
+  - Test connection
+  - Disconnect the live Studio runtime
+- Saved gateway tokens remain server-custodied; the browser sees whether a token is already stored, but not the token itself.
+
+### Advanced connection editing
+- The top-right plug menu still exposes Gateway connection settings.
+- That panel is now an advanced edit surface for saved-vs-draft review, testing, and reconnecting after onboarding.
+
 ## Agent Surfaces
 
 ### Chat (default)

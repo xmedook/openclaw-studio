@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { type StudioSettingsPatch } from "@/lib/studio/settings";
+import { defaultStudioInstallContext } from "@/lib/studio/install-context";
 import {
   isStudioDomainApiModeEnabled,
   peekControlPlaneRuntime,
@@ -12,6 +13,7 @@ import {
   redactLocalGatewayDefaultsSecrets,
   redactStudioSettingsSecrets,
 } from "@/lib/studio/settings-store";
+import { detectInstallContext } from "../../../../server/install-context";
 
 export const runtime = "nodejs";
 
@@ -92,12 +94,25 @@ const reconnectRuntimeForGatewaySettingsChange = async (
   }
 };
 
-const buildSettingsResponseBody = (metadata?: RuntimeReconnectMetadata | null) => {
+const buildSettingsResponseBody = async (metadata?: RuntimeReconnectMetadata | null) => {
   const settings = loadStudioSettings();
   const localGatewayDefaults = loadLocalGatewayDefaults();
+  let installContext = defaultStudioInstallContext();
+  try {
+    installContext = await detectInstallContext(process.env);
+  } catch (error) {
+    console.error("Failed to detect Studio install context.", error);
+  }
   return {
     settings: redactStudioSettingsSecrets(settings),
     localGatewayDefaults: redactLocalGatewayDefaultsSecrets(localGatewayDefaults),
+    localGatewayDefaultsMeta: {
+      hasToken: Boolean(localGatewayDefaults?.token?.trim()),
+    },
+    gatewayMeta: {
+      hasStoredToken: Boolean(settings.gateway?.token?.trim()),
+    },
+    installContext,
     domainApiModeEnabled: isStudioDomainApiModeEnabled(),
     ...(metadata ? { runtimeReconnect: metadata } : {}),
   };
@@ -105,7 +120,7 @@ const buildSettingsResponseBody = (metadata?: RuntimeReconnectMetadata | null) =
 
 export async function GET() {
   try {
-    return NextResponse.json(buildSettingsResponseBody());
+    return NextResponse.json(await buildSettingsResponseBody());
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to load studio settings.";
     console.error(message);
@@ -125,7 +140,7 @@ export async function PUT(request: Request) {
       previousSettings,
       nextSettings
     );
-    return NextResponse.json(buildSettingsResponseBody(runtimeReconnect));
+    return NextResponse.json(await buildSettingsResponseBody(runtimeReconnect));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to save studio settings.";
     console.error(message);

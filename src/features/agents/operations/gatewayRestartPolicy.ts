@@ -1,4 +1,6 @@
-export type GatewayStatus = "disconnected" | "connecting" | "connected";
+import type { GatewayStatus } from "@/lib/gateway/gateway-status";
+
+export type { GatewayStatus };
 
 type RestartObservation = {
   sawDisconnect: boolean;

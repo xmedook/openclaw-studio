@@ -2,6 +2,7 @@ import {
   resolveMutationStartGuard,
   type MutationStartGuardResult,
 } from "@/features/agents/operations/mutationLifecycleWorkflow";
+import type { GatewayStatus } from "@/lib/gateway/gateway-status";
 
 const RESERVED_MAIN_AGENT_ID = "main";
 
@@ -17,7 +18,7 @@ type AgentSettingsMutationRequest =
   | { kind: CronActionKind; agentId: string; jobId: string };
 
 export type AgentSettingsMutationContext = {
-  status: "connected" | "connecting" | "disconnected";
+  status: GatewayStatus;
   hasCreateBlock: boolean;
   hasRenameBlock: boolean;
   hasDeleteBlock: boolean;
@@ -75,7 +76,12 @@ export const planAgentSettingsMutation = (
 
   if (isGuardedAction(request.kind)) {
     const startGuard = resolveMutationStartGuard({
-      status: context.status,
+      status:
+        context.status === "connected"
+          ? "connected"
+          : context.status === "connecting" || context.status === "reconnecting"
+            ? "connecting"
+            : "disconnected",
       hasCreateBlock: context.hasCreateBlock,
       hasRenameBlock: context.hasRenameBlock,
       hasDeleteBlock: context.hasDeleteBlock,

@@ -91,4 +91,5 @@ const loadUpstreamGatewaySettings = (env = process.env) => {
 module.exports = {
   resolveStudioSettingsPath,
   loadUpstreamGatewaySettings,
+  readOpenclawGatewayDefaults,
 };

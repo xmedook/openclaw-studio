@@ -2,6 +2,11 @@ import type { Page } from "@playwright/test";
 import type { AgentStoreSeed } from "@/features/agents/state/store";
 
 type RuntimeRouteFixture = {
+  summary?: {
+    status: string;
+    reason?: string | null;
+    error?: string | null;
+  };
   fleetResult?: {
     seeds: AgentStoreSeed[];
     sessionCreatedAgentIds: string[];
@@ -10,6 +15,12 @@ type RuntimeRouteFixture = {
     suggestedSelectedAgentId: string | null;
     configSnapshot: Record<string, unknown> | null;
   };
+};
+
+const DEFAULT_SUMMARY: RuntimeRouteFixture["summary"] = {
+  status: "connected",
+  reason: null,
+  error: null,
 };
 
 const DEFAULT_FLEET_RESULT: RuntimeRouteFixture["fleetResult"] = {
@@ -43,20 +54,22 @@ export const stubRuntimeRoutes = async (page: Page, fixture: RuntimeRouteFixture
       return;
     }
     const asOf = new Date().toISOString();
+    const summary = fixture.summary ?? DEFAULT_SUMMARY;
     await route.fulfill({
-      status: 200,
+      status: summary.error ? 503 : 200,
       contentType: "application/json",
       body: JSON.stringify({
         enabled: true,
         summary: {
-          status: "connected",
-          reason: null,
+          status: summary.status,
+          reason: summary.reason ?? null,
           asOf,
           outboxHead: 0,
         },
+        ...(summary.error ? { error: summary.error } : {}),
         freshness: {
-          source: "gateway",
-          stale: false,
+          source: summary.error ? "projection" : "gateway",
+          stale: Boolean(summary.error),
           asOf,
         },
       }),

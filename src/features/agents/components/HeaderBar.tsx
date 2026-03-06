@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { GatewayStatus } from "@/lib/gateway/gateway-status";
 import { Plug } from "lucide-react";
-import { resolveGatewayStatusBadgeClass } from "./colorSemantics";
+import { resolveGatewayStatusBadgeClass, resolveGatewayStatusLabel } from "./colorSemantics";
 
 type HeaderBarProps = {
   status: GatewayStatus;
@@ -44,15 +44,13 @@ export const HeaderBar = ({
           OpenClaw Studio
         </p>
         <div className="flex items-center justify-end gap-1">
-          {status === "connecting" ? (
-            <span
-              className={`ui-chip px-2 py-0.5 font-mono text-[9px] font-semibold tracking-[0.08em] ${resolveGatewayStatusBadgeClass("connecting")}`}
-              data-testid="gateway-connecting-indicator"
-              data-status="connecting"
-            >
-              Connecting
-            </span>
-          ) : null}
+          <span
+            className={`ui-chip px-2 py-0.5 font-mono text-[9px] font-semibold tracking-[0.08em] ${resolveGatewayStatusBadgeClass(status)}`}
+            data-testid="gateway-status-indicator"
+            data-status={status}
+          >
+            {resolveGatewayStatusLabel(status)}
+          </span>
           <ThemeToggle />
           {showConnectionSettings ? (
             <div className="relative z-[210]" ref={menuRef}>

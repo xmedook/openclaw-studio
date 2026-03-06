@@ -17,7 +17,7 @@ import {
   isHeartbeatPrompt,
 } from "@/lib/text/message-extract";
 import { useStudioGatewaySettings } from "@/lib/studio/useStudioGatewaySettings";
-import type { GatewayStatus } from "@/lib/gateway/gateway-status";
+import { isGatewayConnected, type GatewayStatus } from "@/lib/gateway/gateway-status";
 import type { ControlPlaneOutboxEntry } from "@/lib/controlplane/contracts";
 import {
   type GatewayModelChoice,
@@ -218,19 +218,35 @@ const AgentStudioPage = () => {
     client,
     status,
     gatewayUrl,
+    draftGatewayUrl,
     token,
     localGatewayDefaults,
+    localGatewayDefaultsHasToken,
+    hasStoredToken,
+    hasUnsavedChanges,
+    installContext,
+    statusReason,
     error: gatewayError,
-    connect,
+    testResult,
+    saving: gatewaySaving,
+    testing: gatewayTesting,
+    saveSettings,
+    testConnection,
     disconnect,
     useLocalGatewayDefaults,
     setGatewayUrl,
     setToken,
+    applyRuntimeStatusEvent,
   } = useStudioGatewaySettings(settingsCoordinator);
   const gatewayStatus: GatewayStatus = status;
-  const gatewayConnected = gatewayStatus === "connected";
-  const coreConnected = true;
-  const coreStatus: GatewayStatus = "connected";
+  const gatewayConnected = isGatewayConnected(gatewayStatus);
+  const gatewayConnectionStatus: "disconnected" | "connecting" | "connected" = gatewayConnected
+    ? "connected"
+    : gatewayStatus === "connecting" || gatewayStatus === "reconnecting"
+      ? "connecting"
+      : "disconnected";
+  const coreConnected = gatewayConnected;
+  const coreStatus = gatewayConnectionStatus;
   const runtimeStreamResumeKey = useMemo(() => {
     const normalizedGatewayUrl = gatewayUrl.trim();
     if (!normalizedGatewayUrl) return null;
@@ -379,7 +395,7 @@ const AgentStudioPage = () => {
     () => (faviconSeed ? buildAvatarDataUrl(faviconSeed) : null),
     [faviconSeed]
   );
-  const errorMessage = state.error ?? gatewayModelsError;
+  const errorMessage = state.error ?? gatewayError ?? gatewayModelsError;
   const runningAgentCount = useMemo(
     () => agents.filter((agent) => agent.status === "running").length,
     [agents]
@@ -489,7 +505,7 @@ const AgentStudioPage = () => {
   );
 
   const { refreshGatewayConfigSnapshot } = useGatewayConfigSyncController({
-    status: gatewayStatus,
+    status: gatewayConnectionStatus,
     settingsRouteActive,
     inspectSidebarAgentId,
     setGatewayConfigSnapshot,
@@ -501,7 +517,7 @@ const AgentStudioPage = () => {
   const settingsMutationController = useAgentSettingsMutationController({
     client,
     runtimeWriteTransport,
-    status: gatewayStatus,
+    status: gatewayConnectionStatus,
     isLocalGateway,
     agents,
     hasCreateBlock: Boolean(createAgentBlock),
@@ -549,7 +565,7 @@ const AgentStudioPage = () => {
     queuedBlockedByRunningAgents,
     activeConfigMutation,
   } = useConfigMutationQueue({
-    status: gatewayStatus,
+    status: gatewayConnectionStatus,
     hasRunningAgents,
     hasRestartBlockInProgress,
   });
@@ -842,7 +858,7 @@ const AgentStudioPage = () => {
   } = useChatInteractionController({
     client,
     runtimeWriteTransport,
-    status: gatewayStatus,
+    status: gatewayConnectionStatus,
     agents,
     dispatch,
     setError,
@@ -882,7 +898,7 @@ const AgentStudioPage = () => {
   } = useSettingsRouteController({
     settingsRouteActive,
     settingsRouteAgentId,
-    status: gatewayStatus,
+    status: gatewayConnectionStatus,
     agentsLoadedOnce,
     selectedAgentId: state.selectedAgentId,
     focusedAgentId: focusedAgent?.agentId ?? null,
@@ -936,7 +952,7 @@ const AgentStudioPage = () => {
       await runCreateAgentMutationLifecycle(
         {
           payload,
-          status: gatewayStatus,
+          status: gatewayConnectionStatus,
           hasCreateBlock: Boolean(createAgentBlock),
           hasRenameBlock: hasRenameMutationBlock,
           hasDeleteBlock: hasDeleteMutationBlock,
@@ -1037,7 +1053,7 @@ const AgentStudioPage = () => {
       refreshGatewayConfigSnapshot,
       runtimeWriteTransport,
       setError,
-      gatewayStatus,
+      gatewayConnectionStatus,
     ]
   );
 
@@ -1270,12 +1286,15 @@ const AgentStudioPage = () => {
     ingestDomainOutboxEntries,
   ]);
 
+  const gatewayConnecting = gatewayStatus === "connecting" || gatewayStatus === "reconnecting";
+
   useRuntimeEventStream({
     onGatewayEvent: (event) => {
       runtimeEventHandlerRef.current?.handleEvent(event);
       domainEventIngressRef.current(event);
     },
-    onRuntimeStatus: () => {
+    onRuntimeStatus: (event) => {
+      applyRuntimeStatusEvent(event);
       void loadSummarySnapshot();
     },
     resumeKey: runtimeStreamResumeKey ?? undefined,
@@ -1338,10 +1357,10 @@ const AgentStudioPage = () => {
     : null;
 
   useEffect(() => {
-    if (status === "connecting") {
+    if (gatewayStatus === "connecting" || gatewayStatus === "reconnecting") {
       setDidAttemptGatewayConnect(true);
     }
-  }, [status]);
+  }, [gatewayStatus]);
 
   useEffect(() => {
     if (gatewayError) {
@@ -1349,7 +1368,7 @@ const AgentStudioPage = () => {
     }
   }, [gatewayError]);
 
-  if (!agentsLoadedOnce && !coreConnected && (!didAttemptGatewayConnect || status === "connecting")) {
+  if (!agentsLoadedOnce && !coreConnected && (!didAttemptGatewayConnect || gatewayConnecting)) {
     return (
       <div className="relative min-h-screen w-screen overflow-hidden bg-background">
         <div className="flex min-h-screen items-center justify-center px-6">
@@ -1358,7 +1377,7 @@ const AgentStudioPage = () => {
               OpenClaw Studio
             </div>
             <div className="mt-3 text-sm text-muted-foreground">
-              {status === "connecting" ? "Connecting to gateway…" : "Booting Studio…"}
+              {gatewayConnecting ? "Connecting to gateway…" : "Booting Studio…"}
             </div>
           </div>
         </div>
@@ -1366,7 +1385,7 @@ const AgentStudioPage = () => {
     );
   }
 
-  if (!coreConnected && status === "disconnected" && !agentsLoadedOnce && didAttemptGatewayConnect) {
+  if (!coreConnected && !agentsLoadedOnce && didAttemptGatewayConnect) {
     return (
       <div className="relative min-h-screen w-screen overflow-hidden bg-background">
         <div className="relative z-10 flex h-screen flex-col">
@@ -1387,15 +1406,26 @@ const AgentStudioPage = () => {
               </div>
             ) : null}
             <GatewayConnectScreen
-              gatewayUrl={gatewayUrl}
+              savedGatewayUrl={gatewayUrl}
+              draftGatewayUrl={draftGatewayUrl}
               token={token}
               localGatewayDefaults={localGatewayDefaults}
+              localGatewayDefaultsHasToken={localGatewayDefaultsHasToken}
+              hasStoredToken={hasStoredToken}
+              hasUnsavedChanges={hasUnsavedChanges}
+              installContext={installContext}
               status={gatewayStatus}
+              statusReason={statusReason}
               error={gatewayError}
+              testResult={testResult}
+              saving={gatewaySaving}
+              testing={gatewayTesting}
               onGatewayUrlChange={setGatewayUrl}
               onTokenChange={setToken}
               onUseLocalDefaults={useLocalGatewayDefaults}
-              onConnect={() => void connect()}
+              onSaveSettings={() => void saveSettings()}
+              onTestConnection={() => void testConnection()}
+              onDisconnect={() => void disconnect()}
             />
           </div>
         </div>
@@ -1437,14 +1467,23 @@ const AgentStudioPage = () => {
             <div className="pointer-events-none fixed inset-x-0 top-12 z-[140] flex justify-center px-3 sm:px-4 md:px-5">
               <div className="glass-panel pointer-events-auto w-full max-w-4xl !bg-card px-4 py-4 sm:px-6 sm:py-6">
                 <ConnectionPanel
-                  gatewayUrl={gatewayUrl}
+                  savedGatewayUrl={gatewayUrl}
+                  draftGatewayUrl={draftGatewayUrl}
                   token={token}
+                  hasStoredToken={hasStoredToken}
+                  localGatewayDefaultsHasToken={localGatewayDefaultsHasToken}
+                  hasUnsavedChanges={hasUnsavedChanges}
                   status={gatewayStatus}
+                  statusReason={statusReason}
                   error={gatewayError}
+                  testResult={testResult}
+                  saving={gatewaySaving}
+                  testing={gatewayTesting}
                   onGatewayUrlChange={setGatewayUrl}
                   onTokenChange={setToken}
-                  onConnect={() => void connect()}
-                  onDisconnect={disconnect}
+                  onSaveSettings={() => void saveSettings()}
+                  onTestConnection={() => void testConnection()}
+                  onDisconnect={() => void disconnect()}
                   onClose={() => setShowConnectionPanel(false)}
                 />
               </div>

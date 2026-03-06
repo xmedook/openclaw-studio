@@ -17,12 +17,16 @@ export const GATEWAY_STATUS_LABEL: Record<GatewayStatus, string> = {
   disconnected: "Disconnected",
   connecting: "Connecting",
   connected: "Connected",
+  reconnecting: "Reconnecting",
+  error: "Error",
 };
 
 export const GATEWAY_STATUS_BADGE_CLASS: Record<GatewayStatus, string> = {
   disconnected: "ui-badge-status-disconnected",
   connecting: "ui-badge-status-connecting",
   connected: "ui-badge-status-connected",
+  reconnecting: "ui-badge-status-connecting",
+  error: "ui-badge-status-error",
 };
 
 export const NEEDS_APPROVAL_BADGE_CLASS = "ui-badge-approval";
